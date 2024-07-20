@@ -228,12 +228,13 @@ void PrintDeclarationArray(DeclarationArray *declarr) {
 }
 
 void PrintStatement(Statement *stmt) {
-    if (stmt->type == STMT_EXPR) {
+    switch (stmt->type) {
+    case STMT_EXPR: {
         PrintExpression(&stmt->expr);
         printf(";");
-        return;
+        break;
     }
-    if (stmt->type == STMT_COND) {
+    case STMT_COND: {
         printf("if (");
         PrintExpression(&stmt->ifcond);
         printf(")\n");
@@ -242,9 +243,9 @@ void PrintStatement(Statement *stmt) {
             printf("\nelse\n");
             PrintStatement(stmt->elsebody);
         }
-        return;
+        break;
     }
-    if (stmt->type == STMT_ITER) {
+    case STMT_ITER: {
         printf("for (");
         PrintExpression(&stmt->iterinit);
         printf("; ");
@@ -253,23 +254,23 @@ void PrintStatement(Statement *stmt) {
         PrintExpression(&stmt->iterstep);
         printf(")\n");
         PrintStatement(stmt->iterbody);
-        return;
+        break;
     }
-    if (stmt->type == STMT_BREAK) {
+    case STMT_BREAK: {
         printf("break;");
-        return;
+        break;
     }
-    if (stmt->type == STMT_RETVOID) {
+    case STMT_RETVOID: {
         printf("return;");
-        return;
+        break;
     }
-    if (stmt->type == STMT_RETEXPR) {
+    case STMT_RETEXPR: {
         printf("return ");
         PrintExpression(&stmt->expr);
         printf(";");
-        return;
+        break;
     }
-    if (stmt->type == STMT_COMPOUND) {
+    case STMT_COMPOUND: {
         printf("{\n");
         PrintDeclarationArray(&stmt->declarr);
         StatementArray *stmtarr = &stmt->stmtarr;
@@ -279,13 +280,15 @@ void PrintStatement(Statement *stmt) {
             printf("\n");
         }
         printf("}");
-        return;
+        break;
     }
-    if (stmt->type == STMT_NOP) {
+    case STMT_NOP: {
         printf(";");
-        return;
+        break;
     }
-    printf("INVALID_STATMENT");
+    default:
+        printf("???STATEMENT???");
+    }
 }
 
 void PrintExpression(Expression *expr) {
@@ -371,7 +374,7 @@ void PrintExpression(Expression *expr) {
         break;
     }
     default:
-        printf("?EXPR?");
+        printf("???EXPR???");
     }
 }
 

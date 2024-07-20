@@ -39,7 +39,8 @@ enum {
     EXPR_EQUAL,
     EXPR_LESS,
     EXPR_CALL,
-    EXPR_CONST
+    EXPR_CONST,
+    EXPR_ERROR
 };
 
 struct Expression {
@@ -59,7 +60,8 @@ enum {
     STMT_RETVOID,
     STMT_RETEXPR,
     STMT_COMPOUND,
-    STMT_NOP
+    STMT_NOP,
+    STMT_ERROR,
 };
 
 struct Statement {

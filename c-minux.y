@@ -121,6 +121,9 @@ compound-stmt: '{' declarations statements '}' {
     $$.type = STMT_COMPOUND;
     $$.declarr = $2;
     $$.stmtarr = $3;
+}
+| '{' error '}' {
+    $$.type = STMT_ERROR;
 };
 statements: %empty {
     ArrayZero(&$$);
@@ -169,7 +172,7 @@ cond-stmt: "if" '(' expr ')' statement "endif" {
 expr-stmt: expr ';' {
     $$.type = STMT_EXPR;
     $$.expr = $1;
-};
+}
 expr: ID '(' arguments ')' {
     InitExpression(&$$);
     $$.type = EXPR_CALL;
@@ -251,6 +254,10 @@ expr: ID '(' arguments ')' {
     InitExpression(&$$);
     $$.type = EXPR_CONST;
     $$.value = $1;
+}
+| '(' error ')' {
+    InitExpression(&$$);
+    $$.type = EXPR_ERROR;
 };
 arguments: %empty {
     ArrayZero(&$$);
