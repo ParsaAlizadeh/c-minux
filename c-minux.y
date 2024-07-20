@@ -5,8 +5,8 @@
 }
 
 %union {
-    TypeSpecArray specarr;
-    TypeSpec spec;
+    DeclarationArray declarr;
+    Declaration decl;
     int number, lexid;
     StatementArray stmtarr;
     Statement stmt;
@@ -16,9 +16,9 @@
 
 %destructor {
     for (int i = 0; i < $$.len; i++)
-        DestructTypeSpec(&$$.arr[i]);
+        DestructDeclaration(&$$.arr[i]);
     ArrayRelease(&$$);
-} <specarr>
+} <declarr>
 
 %destructor {
     for (int i = 0; i < $$.len; i++)
@@ -33,8 +33,8 @@
 } <exprarr>
 
 %destructor {
-    DestructTypeSpec(&$$);
-} <spec>
+    DestructDeclaration(&$$);
+} <decl>
 
 %destructor {
     DestructStatement(&$$);
@@ -49,11 +49,9 @@
 %token EQUAL "=="
 %token <lexid> IF "if" ELSE "else" ENDIF "endif" FOR "for" BREAK "break" RETURN "return" INT "int" VOID "void"
 
-%nterm <specarr> declarations
-%nterm <spec> declare
+%nterm <declarr> declarations params param-list
+%nterm <decl> declare param
 %nterm <lexid> type
-%nterm <specarr> params param-list
-%nterm <spec> param
 %nterm <stmtarr> statements
 %nterm <stmt> statement compound-stmt expr-stmt cond-stmt iter-stmt break-stmt ret-stmt
 %nterm <expr> expr
@@ -74,19 +72,19 @@ declarations: declarations declare {
     Append(&$$, $2);
 };
 declare: type ID ';' {
-    InitTypeSpec(&$$);
+    InitDeclaration(&$$);
     $$.type = GetLex($1)->type;
     $$.lexid = $2;
 };
 type: "int" | "void";
 declare: type ID '[' NUMBER ']' ';' {
-    InitTypeSpec(&$$);
+    InitDeclaration(&$$);
     $$.type = GetLex($1)->type;
     $$.lexid = $2;
     $$.length = $4;
 };
 declare: type ID '(' params ')' compound-stmt {
-    InitTypeSpec(&$$);
+    InitDeclaration(&$$);
     $$.type = GetLex($1)->type;
     $$.lexid = $2;
     $$.args = $4;
@@ -106,20 +104,20 @@ param-list: param-list ',' param {
     Append(&$$, $3);
 };
 param: type ID {
-    InitTypeSpec(&$$);
+    InitDeclaration(&$$);
     $$.type = GetLex($1)->type;
     $$.lexid = $2;
 };
 param: type ID '[' ']' {
-    InitTypeSpec(&$$);
+    InitDeclaration(&$$);
     $$.type = GetLex($1)->type;
     $$.lexid = $2;
     $$.length = -1;
 };
 compound-stmt: '{' declarations statements '}' {
     $$.type = STMT_COMPOUND;
-    $$.compound.declarr = $2;
-    $$.compound.stmtarr = $3;
+    $$.declarr = $2;
+    $$.stmtarr = $3;
 };
 statements: %empty {
     ArrayZero(&$$);

@@ -66,9 +66,10 @@ int yylex(void) {
     if (isalpha(c)) {
         Str lex = {0};
         do {
-            Sprintf(&lex, "%c", c);
+            Append(&lex, c);
             c = fgetc(finp);
         } while (c != EOF && isalnum(c));
+        Append(&lex, '\0');
         if (c != EOF)
             ungetc(c, finp);
         yylval.lexid = CreateLex(lex.arr);
@@ -86,60 +87,53 @@ int yylex(void) {
     return c;
 }
 
-void InitTypeSpec(TypeSpec *spec) {
-    spec->type = -1;
-    spec->length = 0;
-    spec->parity = -1;
-    ArrayZero(&spec->args);
-    spec->body = NULL;
+void InitDeclaration(Declaration *decl) {
+    decl->type = -1;
+    decl->length = 0;
+    decl->parity = -1;
+    ArrayZero(&decl->args);
+    decl->body = NULL;
 }
 
-void DestructTypeSpec(TypeSpec *spec) {
-    if (spec == NULL)
+void DestructDeclaration(Declaration *decl) {
+    if (decl == NULL)
         return;
-    for (int i = 0; i < spec->args.len; i++) {
-        DestructTypeSpec(&spec->args.arr[i]);
+    for (int i = 0; i < decl->args.len; i++) {
+        DestructDeclaration(&decl->args.arr[i]);
     }
-    ArrayRelease(&spec->args);
-    DestructStatement(spec->body);
-    free(spec->body);
+    ArrayRelease(&decl->args);
+    DestructStatement(decl->body);
+    free(decl->body);
 }
 
 void DestructStatement(Statement *stmt) {
     if (stmt == NULL)
         return;
     if (stmt->type == STMT_COMPOUND) {
-        TypeSpecArray *declarr = &stmt->compound.declarr;
+        DeclarationArray *declarr = &stmt->declarr;
         for (int i = 0; i < declarr->len; i++) {
-            DestructTypeSpec(&declarr->arr[i]);
+            DestructDeclaration(&declarr->arr[i]);
         }
         ArrayRelease(declarr);
-        StatementArray *stmtarr = &stmt->compound.stmtarr;
+        StatementArray *stmtarr = &stmt->stmtarr;
         for (int i = 0; i < stmtarr->len; i++) {
             DestructStatement(&stmtarr->arr[i]);
         }
         ArrayRelease(stmtarr);
-        return;
-    }
-    if (stmt->type == STMT_EXPR || stmt->type == STMT_RETEXPR) {
+    } else if (stmt->type == STMT_EXPR || stmt->type == STMT_RETEXPR) {
         DestructExpression(&stmt->expr);
-        return;
-    }
-    if (stmt->type == STMT_COND) {
+    } else if (stmt->type == STMT_COND) {
         DestructExpression(&stmt->ifcond);
         DestructStatement(stmt->ifbody);
         free(stmt->ifbody);
         DestructStatement(stmt->elsebody);
         free(stmt->elsebody);
-        return;
-    }
-    if (stmt->type == STMT_ITER) {
+    } else if (stmt->type == STMT_ITER) {
         DestructExpression(&stmt->iterinit);
         DestructExpression(&stmt->itercond);
         DestructExpression(&stmt->iterstep);
         DestructStatement(stmt->iterbody);
         free(stmt->iterbody);
-        return;
     }
 }
 
@@ -161,9 +155,9 @@ void DestructExpression(Expression *expr) {
     ArrayRelease(&expr->args);
 }
 
-TypeSpecArray program;
+DeclarationArray program;
 
-void SetProgram(TypeSpecArray *p) {
+void SetProgram(DeclarationArray *p) {
     program = *p;
 }
 
@@ -175,34 +169,34 @@ const char *StrType(int type) {
     return "???";
 }
 
-void PrintTypeSpecArray(TypeSpecArray *specarr);
+void PrintDeclarationArray(DeclarationArray *specarr);
 void PrintStatement(Statement *stmt);
 void PrintExpression(Expression *expr);
 
-void PrintTypeSpec(TypeSpec *spec) {
-    printf("%s %s", StrType(spec->type), GetLex(spec->lexid)->lex);
-    if (spec->length != 0) {
-        printf("[%d]", spec->length);
+void PrintDeclaration(Declaration *decl) {
+    printf("%s %s", StrType(decl->type), GetLex(decl->lexid)->lex);
+    if (decl->length != 0) {
+        printf("[%d]", decl->length);
         return;
     }
-    if (spec->parity != -1) {
+    if (decl->parity != -1) {
         printf("(");
-        for (int j = 0; j < spec->args.len; j++) {
-            TypeSpec *arg = &spec->args.arr[j];
+        for (int j = 0; j < decl->args.len; j++) {
+            Declaration *arg = &decl->args.arr[j];
             if (j > 0)
                 printf(", ");
-            PrintTypeSpec(arg);
+            PrintDeclaration(arg);
         }
         printf(")\n");
-        PrintStatement(spec->body);
+        PrintStatement(decl->body);
         return;
     }
 }
 
-void PrintTypeSpecArray(TypeSpecArray *specarr) {
-    for (int i = 0; i < specarr->len; i++) {
-        TypeSpec *spec = &specarr->arr[i];
-        PrintTypeSpec(spec);
+void PrintDeclarationArray(DeclarationArray *declarr) {
+    for (int i = 0; i < declarr->len; i++) {
+        Declaration *decl = &declarr->arr[i];
+        PrintDeclaration(decl);
         printf(";\n");
     }
 }
@@ -251,8 +245,8 @@ void PrintStatement(Statement *stmt) {
     }
     if (stmt->type == STMT_COMPOUND) {
         printf("{\n");
-        PrintTypeSpecArray(&stmt->compound.declarr);
-        StatementArray *stmtarr = &stmt->compound.stmtarr;
+        PrintDeclarationArray(&stmt->declarr);
+        StatementArray *stmtarr = &stmt->stmtarr;
         for (int i = 0; i < stmtarr->len; i++) {
             Statement *stmt = &stmtarr->arr[i];
             PrintStatement(stmt);
@@ -269,75 +263,76 @@ void PrintStatement(Statement *stmt) {
 }
 
 void PrintExpression(Expression *expr) {
-    if (expr->type == EXPR_VAR) {
+    switch(expr->type) {
+    case EXPR_VAR: {
         printf("%s", GetLex(expr->lexid)->lex);
-        return;
+        break;
     }
-    if (expr->type == EXPR_ARRAYCELL) {
+    case EXPR_ARRAYCELL: {
         printf("%s[", GetLex(expr->lexid)->lex);
         PrintExpression(expr->left);
         printf("]");
-        return;
+        break;
     }
-    if (expr->type == EXPR_VAR_ASSIGN) {
+    case EXPR_VAR_ASSIGN: {
         printf("(%s = ", GetLex(expr->lexid)->lex);
         PrintExpression(expr->right);
         printf(")");
-        return;
+        break;
     }
-    if (expr->type == EXPR_ARRAYCELL_ASSIGN) {
+    case EXPR_ARRAYCELL_ASSIGN: {
         printf("(%s[", GetLex(expr->lexid)->lex);
         PrintExpression(expr->left);
         printf("] = ");
         PrintExpression(expr->right);
         printf(")");
-        return;
+        break;
     }
-    if (expr->type == EXPR_MULT) {
+    case EXPR_MULT: {
         printf("(");
         PrintExpression(expr->left);
         printf(" * ");
         PrintExpression(expr->right);
         printf(")");
-        return;
+        break;
     }
-    if (expr->type == EXPR_ADD) {
+    case EXPR_ADD: {
         printf("(");
         PrintExpression(expr->left);
         printf(" + ");
         PrintExpression(expr->right);
         printf(")");
-        return;
+        break;
     }
-    if (expr->type == EXPR_SUB) {
+    case EXPR_SUB: {
         printf("(");
         PrintExpression(expr->left);
         printf(" - ");
         PrintExpression(expr->right);
         printf(")");
-        return;
+        break;
     }
-    if (expr->type == EXPR_EQUAL) {
+    case EXPR_EQUAL: {
         printf("(");
         PrintExpression(expr->left);
         printf(" == ");
         PrintExpression(expr->right);
         printf(")");
-        return;
+        break;
     }
-    if (expr->type == EXPR_LESS) {
+    case EXPR_LESS: {
         printf("(");
         PrintExpression(expr->left);
         printf(" < ");
         PrintExpression(expr->right);
         printf(")");
-        return;
+        break;
     }
-    if (expr->type == EXPR_CONST) {
+    case EXPR_CONST: {
         printf("%d", expr->value);
-        return;
+        break;
     }
-    if (expr->type == EXPR_CALL) {
+    case EXPR_CALL: {
         printf("%s(", GetLex(expr->lexid)->lex);
         ExpressionArray *args = &expr->args;
         for (int i = 0; i < args->len; i++) {
@@ -347,9 +342,11 @@ void PrintExpression(Expression *expr) {
             PrintExpression(arg);
         }
         printf(")");
-        return;
+        break;
     }
-    printf("INVALID_EXPRESSION");
+    default:
+        printf("?EXPR?");
+    }
 }
 
 
@@ -360,10 +357,10 @@ int main() {
         eprintf("fopen(input.txt):");
     if (yyparse() != 0)
         eprintf("yyparse() failed");
-    PrintTypeSpecArray(&program);
+    PrintDeclarationArray(&program);
     for (int i = 0; i < program.len; i++) {
-        TypeSpec *decl = &program.arr[i];
-        DestructTypeSpec(decl);
+        Declaration *decl = &program.arr[i];
+        DestructDeclaration(decl);
     }
     ArrayRelease(&program);
     printf("done!\n");

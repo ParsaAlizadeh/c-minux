@@ -5,36 +5,28 @@
 
 typedef struct LexEnt LexEnt;
 
-typedef struct TypeSpec TypeSpec;
-typedef Array(TypeSpec) TypeSpecArray;
-
-typedef struct CompoundStatement CompoundStatement;
-
-typedef struct Expression Expression;
-typedef Array(Expression) ExpressionArray;
+typedef struct Declaration Declaration;
+typedef Array(Declaration) DeclarationArray;
 
 typedef struct Statement Statement;
 typedef Array(Statement) StatementArray;
+
+typedef struct Expression Expression;
+typedef Array(Expression) ExpressionArray;
 
 struct LexEnt {
     const char *lex;
     int type;
 };
 
-struct TypeSpec {
-    int type, length, parity;
-    int lexid;
-    TypeSpecArray args;
+struct Declaration {
+    int type, length, parity, lexid;
+    DeclarationArray args;
     Statement *body;
 };
 
-extern void InitTypeSpec(TypeSpec *);
-extern void DestructTypeSpec(TypeSpec *);
-
-struct CompoundStatement {
-    TypeSpecArray declarr;
-    StatementArray stmtarr;
-};
+extern void InitDeclaration(Declaration *);
+extern void DestructDeclaration(Declaration *);
 
 enum {
     EXPR_VAR,
@@ -51,11 +43,9 @@ enum {
 };
 
 struct Expression {
-    int type;
+    int type, lexid, value;
     Expression *left, *right;
-    int lexid;
     ExpressionArray args;
-    int value;
 };
 
 extern void InitExpression(Expression *);
@@ -75,7 +65,10 @@ enum {
 struct Statement {
     int type;
     union {
-        CompoundStatement compound;
+        struct {
+            DeclarationArray declarr;
+            StatementArray stmtarr;
+        };
         Expression expr;
         struct {
             Expression iterinit, itercond, iterstep;
@@ -93,6 +86,6 @@ extern void DestructStatement(Statement *);
 extern int CreateLex(const char *);
 extern LexEnt *GetLex(int);
 
-extern void SetProgram(TypeSpecArray *);
+extern void SetProgram(DeclarationArray *);
 
 #endif

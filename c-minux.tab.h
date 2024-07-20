@@ -83,8 +83,8 @@ union YYSTYPE
 {
 #line 7 "c-minux.y"
 
-    TypeSpecArray specarr;
-    TypeSpec spec;
+    DeclarationArray declarr;
+    Declaration decl;
     int number, lexid;
     StatementArray stmtarr;
     Statement stmt;
