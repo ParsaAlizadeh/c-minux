@@ -411,7 +411,8 @@ void PrintFileAtLoc(YYLTYPE *loc) {
             c = '\t';
         fputc(c, stderr);
     }
-    for (int i = loc->first_column; i < loc->last_column; i++) {
+    fputc('^', stderr);
+    for (int i = loc->first_column+1; i < loc->last_column; i++) {
         fputc('~', stderr);
         if (str.arr[i - 1] == '\t')
             fputc('\t', stderr);
