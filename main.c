@@ -49,18 +49,36 @@ void InitLexTab(void) {
     }
 }
 
+int line = 1, column = 1;
+
 int yylex(void) {
     int c;
-    c = fgetc(finp);
-    while (c != EOF && isspace(c)) {
+    do {
         c = fgetc(finp);
-    }
+        column++;
+        if (c == '\n') {
+            column = 1;
+            line++;
+        }
+    } while (c != EOF && isspace(c));
     if (c == EOF)
         return YYEOF;
+    yylloc.first_line = line;
+    yylloc.first_column = column - 1;
+    yylloc.last_line = line;
+    yylloc.last_column = column;
     if (isdigit(c)) {
-        ungetc(c, finp);
-        if (fscanf(finp, "%d", &yylval.number) != 1)
-            eprintf("scanf number failed:");
+        yylval.number = 0;
+        while (c != EOF && isdigit(c)) {
+            yylval.number *= 10;
+            yylval.number += (c - '0');
+            c = fgetc(finp);
+            column++;
+        }
+        if (c != EOF)
+            ungetc(c, finp);
+        column--;
+        yylloc.last_column = column;
         return NUMBER;
     }
     if (isalpha(c)) {
@@ -68,20 +86,28 @@ int yylex(void) {
         do {
             Append(&lex, c);
             c = fgetc(finp);
+            column++;
         } while (c != EOF && isalnum(c));
         Append(&lex, '\0');
         if (c != EOF)
             ungetc(c, finp);
+        column--;
+        yylloc.last_column = column;
         yylval.lexid = CreateLex(lex.arr);
         ArrayRelease(&lex);
         return GetLex(yylval.lexid)->type;
     }
     if (c == '=') {
         c = fgetc(finp);
-        if (c == '=')
+        column++;
+        if (c == '=') {
+            yylloc.last_column = column;
             return EQUAL;
+        }
         if (c != EOF)
             ungetc(c, finp);
+        column--;
+        yylloc.last_column = column;
         return '=';
     }
     return c;
@@ -349,6 +375,48 @@ void PrintExpression(Expression *expr) {
     }
 }
 
+void PrintFileAtLoc(YYLTYPE *loc) {
+    FILE *finp;
+    if ((finp = fopen("input.txt", "r")) == NULL)
+        eprintf("fopen(input.txt):");
+    int line = 1, column = 1;
+    int c;
+    while (line < loc->first_line) {
+        c = fgetc(finp);
+        if (c == EOF)
+            eprintf("unexpected EOF");
+        column++;
+        if (c == '\n') {
+            line++;
+            column = 1;
+        }
+    }
+    // fprintf(stderr, "%d-%d\n", loc->first_column, loc->last_column);
+    Str str = {0};
+    while (line == loc->first_line) {
+        c = fgetc(finp);
+        if (c == EOF || c == '\n')
+            break;
+        Append(&str, c);
+    }
+    Append(&str, '\0');
+    fprintf(stderr, " %d\t| %s\n", line, str.arr);
+    fprintf(stderr, " \t| ");
+    for (int i = 1; i < loc->first_column; i++) {
+        c = ' ';
+        if (str.arr[i - 1] == '\t')
+            c = '\t';
+        fputc(c, stderr);
+    }
+    for (int i = loc->first_column; i < loc->last_column; i++) {
+        fputc('~', stderr);
+        if (str.arr[i - 1] == '\t')
+            fputc('\t', stderr);
+    }
+    fputc('\n', stderr);
+    ArrayRelease(&str);
+    fclose(finp);
+}
 
 int main() {
     // yydebug = 1;

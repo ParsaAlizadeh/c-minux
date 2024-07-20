@@ -4,6 +4,9 @@
     extern void yyerror(const char *);
 }
 
+%locations
+%define parse.error custom
+
 %union {
     DeclarationArray declarr;
     Declaration decl;
@@ -262,3 +265,26 @@ arg-list: arg-list ',' expr {
     Append(&$$, $3);
 };
 %%
+extern void PrintFileAtLoc(YYLTYPE *);
+static int yyreport_syntax_error(const yypcontext_t *ctx) {
+    int res = 0;
+    YYLOCATION_PRINT(stderr, yypcontext_location(ctx));
+    fprintf(stderr, ": syntax error");
+    // Report the tokens expected at this point.
+    enum { TOKENMAX = 5 };
+    yysymbol_kind_t expected[TOKENMAX];
+    int n = yypcontext_expected_tokens(ctx, expected, TOKENMAX);
+    if (n < 0)
+        // Forward errors to yyparse.
+        res = n;
+    else
+        for (int i = 0; i < n; ++i)
+            fprintf (stderr, "%s %s", i == 0 ? ": expected" : " or", yysymbol_name(expected[i]));
+    // Report the unexpected token.
+    yysymbol_kind_t lookahead = yypcontext_token(ctx);
+    if (lookahead != YYSYMBOL_YYEMPTY)
+        fprintf(stderr, " before %s", yysymbol_name(lookahead));
+    fprintf(stderr, "\n");
+    PrintFileAtLoc(yypcontext_location(ctx));
+    return res;
+}
