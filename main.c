@@ -1,6 +1,7 @@
 #include "main.h"
 #include <stdio.h>
 #include <ctype.h>
+
 #include "c-minux.tab.h"
 #include "eprintf.h"
 #include "array.h"
@@ -430,12 +431,15 @@ int main() {
     if (yyparse() != 0)
         eprintf("yyparse() failed");
     PrintDeclarationArray(&program);
+    CreateCodegen();
+    CodegenProgram(&program);
+    OutputCode();
+    DisposeCodegen();
     for (int i = 0; i < program.len; i++) {
         Declaration *decl = &program.arr[i];
         DestructDeclaration(decl);
     }
     ArrayRelease(&program);
-    printf("done!\n");
     return 0;
 }
 

@@ -33,7 +33,7 @@ void weprintf(const char *fmt, ...) {
     va_end(ap);
 }
 
-void eprintf(const char *fmt, ...) {
+void _eprintf(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
     vweprintf(fmt, ap);

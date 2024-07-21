@@ -106,12 +106,12 @@ param-list: param-list ',' param {
     $$ = $1;
     Append(&$$, $3);
 };
-param: type ID {
+param: "int" ID {
     InitDeclaration(&$$);
     $$.type = GetLex($1)->type;
     $$.lexid = $2;
 };
-param: type ID '[' ']' {
+param: "int" ID '[' ']' {
     InitDeclaration(&$$);
     $$.type = GetLex($1)->type;
     $$.lexid = $2;

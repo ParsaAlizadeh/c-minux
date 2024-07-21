@@ -90,4 +90,9 @@ extern LexEnt *GetLex(int);
 
 extern void SetProgram(DeclarationArray *);
 
+extern void CreateCodegen(void);
+extern void OutputCode(void);
+extern void DisposeCodegen(void);
+extern void CodegenProgram(DeclarationArray *);
+
 #endif
