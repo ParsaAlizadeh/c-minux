@@ -7,6 +7,11 @@
 %locations
 %define parse.error custom
 
+%code {
+    extern void PrintFileAtLoc(YYLTYPE *loc);
+    extern void ReportError(YYLTYPE *loc, const char *fmt, ...);
+}
+
 %union {
     DeclarationArray declarr;
     Declaration decl;
@@ -85,6 +90,10 @@ declare: type ID '[' NUMBER ']' ';' {
     $$.type = GetLex($1)->type;
     $$.lexid = $2;
     $$.length = $4;
+    if ($$.length <= 0) {
+        ReportError(&@4, "array length must be positive, got %d", $$.length);
+        YYERROR;
+    }
 };
 declare: type ID '(' params ')' compound-stmt {
     InitDeclaration(&$$);
@@ -272,7 +281,6 @@ arg-list: arg-list ',' expr {
     Append(&$$, $3);
 };
 %%
-extern void PrintFileAtLoc(YYLTYPE *);
 static int yyreport_syntax_error(const yypcontext_t *ctx) {
     int res = 0;
     YYLOCATION_PRINT(stderr, yypcontext_location(ctx));

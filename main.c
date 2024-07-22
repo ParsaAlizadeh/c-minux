@@ -1,6 +1,8 @@
 #include "main.h"
+
 #include <stdio.h>
 #include <ctype.h>
+#include <stdarg.h>
 
 #include "c-minux.tab.h"
 #include "eprintf.h"
@@ -413,7 +415,8 @@ void PrintFileAtLoc(YYLTYPE *loc) {
         fputc(c, stderr);
     }
     fputc('^', stderr);
-    for (int i = loc->first_column+1; i < loc->last_column; i++) {
+    int last_column = loc->first_line == loc->last_line ? loc->last_column : 1 + StrLen(&str);
+    for (int i = loc->first_column+1; i < last_column; i++) {
         fputc('~', stderr);
         if (str.arr[i - 1] == '\t')
             fputc('\t', stderr);
@@ -423,6 +426,16 @@ void PrintFileAtLoc(YYLTYPE *loc) {
     fclose(finp);
 }
 
+void ReportError(YYLTYPE *loc, const char *fmt, ...) {
+    va_list args;
+    fprintf(stderr, "%d.%d: syntax error: ", loc->first_line, loc->first_column);
+    va_start(args, fmt);
+    vfprintf(stderr, fmt, args);
+    va_end(args);
+    fprintf(stderr, "\n");
+    PrintFileAtLoc(loc);
+}
+
 int main() {
     // yydebug = 1;
     InitLexTab();
@@ -430,7 +443,7 @@ int main() {
         eprintf("fopen(input.txt):");
     if (yyparse() != 0)
         eprintf("yyparse() failed");
-    PrintDeclarationArray(&program);
+    // PrintDeclarationArray(&program);
     CreateCodegen();
     CodegenProgram(&program);
     OutputCode();
