@@ -1,13 +1,10 @@
-#include "main.h"
-
-#include <stdlib.h>
-#include <stdio.h>
 #include <ctype.h>
 #include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "c-minux.tab.h"
 #include "eprintf.h"
-#include "array.h"
 
 void yyerror(const char *msg) {
     weprintf("%s", msg);

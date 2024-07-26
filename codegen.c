@@ -1,12 +1,10 @@
 #include <stdio.h>
 
-#include "array.h"
-#include "eprintf.h"
-#include "c-minux.tab.h"
-#include "main.h"
-
 #include <llvm-c/Core.h>
 #include <llvm-c/Types.h>
+
+#include "c-minux.tab.h"
+#include "eprintf.h"
 
 static LLVMContextRef context;
 static LLVMBuilderRef builder;
@@ -54,6 +52,7 @@ struct CType {
 
 void InitCType(CType *cty) {
     ArrayZero(&cty->args);
+    cty->kind = -1;
     cty->typeref = NULL;
 }
 
@@ -212,7 +211,8 @@ static LLVMValueRef CodegenExpressionRW(Expression *expr) {
     }
     case EXPR_ARRAYCELL: {
         if (!IsPointerKind(ent->cty.kind)) {
-            ReportError(expr->loc, "expected variable \"%s\" to be array or pointer");
+            weprintf("@@@ %s: kind=%d, pointer=%d", lex, ent->cty.kind, TY_POINTER);
+            ReportError(expr->loc, "expected variable \"%s\" to be array or pointer", lex);
             return NULL;
         }
         LLVMValueRef ind = CodegenExpression(expr->left);
@@ -249,6 +249,10 @@ static LLVMValueRef CodegenExpressionRW(Expression *expr) {
         }
         ptr = LLVMBuildGEP2(builder, intTy, ent->llvmval, &ind, 1, lex);
         LLVMValueRef val = CodegenExpression(expr->right);
+        if (val == NULL) {
+            ReportError(expr->loc, "expected right hand side to be integer");
+            return NULL;
+        }
         LLVMBuildStore(builder, val, ptr);
         break;
     }
@@ -500,9 +504,11 @@ static void CodegenParameters(LLVMValueRef fn, DeclarationArray *params) {
         LLVMValueRef llvmparam = LLVMGetParam(fn, i);
         LLVMSetValueName2(llvmparam, lex, strlen(lex));
         if (param->length < 0) {
+            ent.cty.kind = TY_POINTER;
             ent.cty.typeref = ptrTy;
             ent.llvmval = llvmparam;
         } else {
+            ent.cty.kind = TY_INT;
             ent.cty.typeref = intTy;
             ent.llvmval = LLVMBuildAlloca(builder, intTy, lex);
             LLVMBuildStore(builder, llvmparam, ent.llvmval);

@@ -58,7 +58,7 @@
 %nterm <lexid> type
 %nterm <stmtarr> statements
 %nterm <stmt> statement compound-stmt expr-stmt cond-stmt iter-stmt break-stmt continue-stmt ret-stmt
-%nterm <expr> expr
+%nterm <expr> expr iter-expr
 %nterm <exprarr> arguments arg-list
 
 %right '='
@@ -166,7 +166,7 @@ continue-stmt: "continue" ';' {
     $$.type = STMT_CONTINUE;
     $$.loc = @$;
 };
-iter-stmt: "for" '(' expr ';' expr ';' expr ')' statement {
+iter-stmt: "for" '(' iter-expr ';' iter-expr ';' iter-expr ')' statement {
     $$.type = STMT_ITER;
     $$.loc = @$;
     $$.iterinit = $3;
@@ -174,6 +174,11 @@ iter-stmt: "for" '(' expr ';' expr ';' expr ')' statement {
     $$.iterstep = $7;
     $$.iterbody = malloc(sizeof(Statement));
     *$$.iterbody = $9;
+};
+iter-expr: expr | %empty {
+    $$.type = EXPR_CONST;
+    $$.value = 1;
+    $$.loc = @$;
 };
 cond-stmt: "if" '(' expr ')' statement "endif" {
     $$.type = STMT_COND;
