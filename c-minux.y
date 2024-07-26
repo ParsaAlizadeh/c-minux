@@ -51,13 +51,13 @@
 %token <number> NUMBER 
 %token <lexid> ID
 %token EQUAL "=="
-%token <lexid> IF "if" ELSE "else" ENDIF "endif" FOR "for" BREAK "break" RETURN "return" INT "int" VOID "void"
+%token <lexid> IF "if" ELSE "else" ENDIF "endif" FOR "for" BREAK "break" CONTINUE "continue" RETURN "return" INT "int" VOID "void"
 
 %nterm <declarr> declarations params param-list
 %nterm <decl> declare param
 %nterm <lexid> type
 %nterm <stmtarr> statements
-%nterm <stmt> statement compound-stmt expr-stmt cond-stmt iter-stmt break-stmt ret-stmt
+%nterm <stmt> statement compound-stmt expr-stmt cond-stmt iter-stmt break-stmt continue-stmt ret-stmt
 %nterm <expr> expr
 %nterm <exprarr> arguments arg-list
 
@@ -148,7 +148,7 @@ statement: ';' {
     $$.type = STMT_NOP;
     $$.loc = @$;
 }
-| expr-stmt | cond-stmt | iter-stmt | break-stmt | ret-stmt | compound-stmt;
+| expr-stmt | cond-stmt | iter-stmt | break-stmt | continue-stmt | ret-stmt | compound-stmt;
 ret-stmt: "return" ';' {
     $$.type = STMT_RETVOID;
     $$.loc = @$;
@@ -160,6 +160,10 @@ ret-stmt: "return" ';' {
 };
 break-stmt: "break" ';' {
     $$.type = STMT_BREAK;
+    $$.loc = @$;
+};
+continue-stmt: "continue" ';' {
+    $$.type = STMT_CONTINUE;
     $$.loc = @$;
 };
 iter-stmt: "for" '(' expr ';' expr ';' expr ')' statement {

@@ -26,6 +26,7 @@ struct {
     { VOID, "void" },
     { FOR, "for" },
     { BREAK, "break" },
+    { CONTINUE, "continue" },
     { RETURN, "return" },
     {0}
 };

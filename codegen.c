@@ -386,16 +386,24 @@ static void CodegenConditional(Statement *cond) {
     LLVMPositionBuilderAtEnd(builder, endblock);
 }
 
-Array(LLVMBasicBlockRef) itertab;
+typedef struct IterationBlocks IterationBlocks;
+struct IterationBlocks {
+    LLVMBasicBlockRef stepblock, endblock;
+};
+
+Array(IterationBlocks) itertab;
 
 static void CodegenIteration(Statement *iter) {
     SymEnt *fnent = &symtab.arr[GetFunction()];
-    LLVMBasicBlockRef condblock, bodyblock, endblock;
+    LLVMBasicBlockRef condblock, bodyblock, stepblock, endblock;
     condblock = LLVMAppendBasicBlockInContext(context, fnent->llvmval, "itercond");
     bodyblock = LLVMAppendBasicBlockInContext(context, fnent->llvmval, "iterbody");
+    stepblock = LLVMAppendBasicBlockInContext(context, fnent->llvmval, "iterstep");
     endblock = LLVMAppendBasicBlockInContext(context, fnent->llvmval, "enditer");
+    /* entry block */
     CodegenExpression(&iter->iterinit);
     LLVMBuildBr(builder, condblock);
+    /* condition block */
     LLVMPositionBuilderAtEnd(builder, condblock);
     LLVMValueRef condval = CodegenExpression(&iter->itercond);
     if (condval == NULL) {
@@ -404,12 +412,18 @@ static void CodegenIteration(Statement *iter) {
     }
     LLVMValueRef predval = LLVMBuildICmp(builder, LLVMIntNE, condval, LLVMConstInt(intTy, 0, 0), "pred");
     LLVMBuildCondBr(builder, predval, bodyblock, endblock);
+    /* body block */
     LLVMPositionBuilderAtEnd(builder, bodyblock);
-    Append(&itertab, endblock);
+    IterationBlocks ibs = { .stepblock = stepblock, .endblock = endblock };
+    Append(&itertab, ibs);
     CodegenStatement(iter->iterbody);
     itertab.len--;
+    LLVMBuildBr(builder, stepblock);
+    /* step block */
+    LLVMPositionBuilderAtEnd(builder, stepblock);
     CodegenExpression(&iter->iterstep);
     LLVMBuildBr(builder, condblock);
+    /* exit block */
     LLVMPositionBuilderAtEnd(builder, endblock);
 }
 
@@ -426,10 +440,18 @@ static void CodegenStatement(Statement *stmt) {
         break;
     case STMT_BREAK: {
         if (itertab.len == 0) {
-            ReportError(stmt->loc, "unexpected break-statement. no matching for-statment");
+            ReportError(stmt->loc, "unexpected break-statement, no matching for-statment");
             return;
         }
-        LLVMBuildBr(builder, ArrayLast(&itertab));
+        LLVMBuildBr(builder, ArrayLast(&itertab).endblock);
+        break;
+    }
+    case STMT_CONTINUE: {
+        if (itertab.len == 0) {
+            ReportError(stmt->loc, "unexpected continue-statement, no matching for statement");
+            return;
+        }
+        LLVMBuildBr(builder, ArrayLast(&itertab).stepblock);
         break;
     }
     case STMT_RETVOID: {
