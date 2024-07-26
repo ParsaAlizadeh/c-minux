@@ -52,15 +52,30 @@ void InitLexTab(void) {
 
 int line = 1, column = 1;
 
+static int Fgetc(void) {
+    int c = fgetc(finp);
+    if (c == EOF)
+        return c;
+    if (c == '\n') {
+        line++;
+        column = 1;
+    } else {
+        column++;
+    }
+    return c;
+}
+
+static void Fungetc(int c) {
+    ungetc(c, finp);
+    if (c == '\n')
+        eprintf("cannot ungetc newline character");
+    column--;
+}
+
 int yylex(void) {
     int c;
     do {
-        c = fgetc(finp);
-        column++;
-        if (c == '\n') {
-            column = 1;
-            line++;
-        }
+        c = Fgetc();
     } while (c != EOF && isspace(c));
     if (c == EOF)
         return YYEOF;
@@ -73,12 +88,10 @@ int yylex(void) {
         while (c != EOF && isdigit(c)) {
             yylval.number *= 10;
             yylval.number += (c - '0');
-            c = fgetc(finp);
-            column++;
+            c = Fgetc();
         }
         if (c != EOF)
-            ungetc(c, finp);
-        column--;
+            Fungetc(c);
         yylloc.last_column = column;
         return NUMBER;
     }
@@ -86,30 +99,31 @@ int yylex(void) {
         Str lex = {0};
         do {
             Append(&lex, c);
-            c = fgetc(finp);
-            column++;
+            c = Fgetc();
         } while (c != EOF && isalnum(c));
         Append(&lex, '\0');
         if (c != EOF)
-            ungetc(c, finp);
-        column--;
+            Fungetc(c);
         yylloc.last_column = column;
         yylval.lexid = CreateLex(lex.arr);
         ArrayRelease(&lex);
         return GetLex(yylval.lexid)->type;
     }
-    if (c == '=') {
-        c = fgetc(finp);
-        column++;
-        if (c == '=') {
+    if (c == '=' || c == '<' || c == '>') {
+        int cnxt = Fgetc();
+        if (cnxt == '=') {
             yylloc.last_column = column;
-            return EQUAL;
+            if (c == '=')
+                return EQUAL;
+            if (c == '<')
+                return EQLT;
+            if (c == '>')
+                return EQGT;
+            eprintf("unreachable");
         }
-        if (c != EOF)
-            ungetc(c, finp);
-        column--;
-        yylloc.last_column = column;
-        return '=';
+        if (cnxt != EOF)
+            Fungetc(cnxt);
+        return c;
     }
     return c;
 }

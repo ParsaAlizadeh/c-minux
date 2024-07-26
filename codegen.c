@@ -5,6 +5,7 @@
 
 #include "c-minux.tab.h"
 #include "eprintf.h"
+#include "main.h"
 
 static LLVMContextRef context;
 static LLVMBuilderRef builder;
@@ -262,7 +263,7 @@ static LLVMValueRef CodegenExpressionRW(Expression *expr) {
     return LLVMBuildLoad2(builder, intTy, ptr, lex);
 }
 
-static LLVMValueRef CodegenExpressionBinary(Expression *expr) {
+static LLVMValueRef CodegenExpressionBinaryOp(Expression *expr) {
     LLVMValueRef left = CodegenExpression(expr->left);
     LLVMValueRef right = CodegenExpression(expr->right);
     if (left == NULL) {
@@ -274,24 +275,61 @@ static LLVMValueRef CodegenExpressionBinary(Expression *expr) {
         return NULL;
     }
     switch (expr->type) {
-    case EXPR_MULT:
+    case EXPR_MUL:
         return LLVMBuildMul(builder, left, right, "mul");
     case EXPR_ADD:
         return LLVMBuildAdd(builder, left, right, "add"); 
     case EXPR_SUB:
         return LLVMBuildSub(builder, left, right, "sub");
-    case EXPR_EQUAL: {
-        LLVMValueRef cmp = LLVMBuildICmp(builder, LLVMIntEQ, left, right, "eq");
-        return LLVMBuildZExt(builder, cmp, intTy, "zext");
-    }
-    case EXPR_LESS: {
-        LLVMValueRef cmp = LLVMBuildICmp(builder, LLVMIntSLT, left, right, "lt");
-        return LLVMBuildZExt(builder, cmp, intTy, "zext");
-    }
+    case EXPR_DIV:
+        return LLVMBuildSDiv(builder, left, right, "div");
+    case EXPR_REM:
+        return LLVMBuildSRem(builder, left, right, "rem");
+    case EXPR_BITAND:
+        return LLVMBuildAnd(builder, left, right, "and");
+    case EXPR_BITOR:
+        return LLVMBuildOr(builder, left, right, "or");
+    case EXPR_BITXOR:
+        return LLVMBuildXor(builder, left, right, "xor");
     default:
         eprintf("unexpected binary expression type");
     }
     return NULL;
+}
+
+static LLVMValueRef CodegenExpressionCompareOp(Expression *expr) {
+    LLVMValueRef left = CodegenExpression(expr->left);
+    LLVMValueRef right = CodegenExpression(expr->right);
+    if (left == NULL) {
+        ReportError(expr->loc, "expected left hand side of compare operator to be integer");
+        return NULL;
+    }
+    if (right == NULL) {
+        ReportError(expr->loc, "expected right hand side of compare operator to be integer");
+        return NULL;
+    }
+    LLVMIntPredicate pred;
+    switch (expr->type) {
+    case EXPR_EQUAL:
+        pred = LLVMIntEQ;
+        break;
+    case EXPR_LESS:
+        pred = LLVMIntSLT;
+        break;
+    case EXPR_GREATER:
+        pred = LLVMIntSGT;
+        break;
+    case EXPR_EQLT:
+        pred = LLVMIntSLE;
+        break;
+    case EXPR_EQGT:
+        pred = LLVMIntSGE;
+        break;
+    default:
+        eprintf("unexpected compare expression type");
+    }
+    LLVMValueRef cmp = LLVMBuildICmp(builder, pred, left, right, "cmp");
+    return LLVMBuildZExt(builder, cmp, intTy, "zext");
 }
 
 static LLVMValueRef CodegenExpressionCall(Expression *expr) {
@@ -332,12 +370,21 @@ static LLVMValueRef CodegenExpression(Expression *expr) {
     case EXPR_VAR_ASSIGN:
     case EXPR_ARRAYCELL_ASSIGN:
         return CodegenExpressionRW(expr);
-    case EXPR_MULT:
+    case EXPR_MUL:
     case EXPR_ADD:
     case EXPR_SUB:
+    case EXPR_DIV:
+    case EXPR_REM:
+    case EXPR_BITAND:
+    case EXPR_BITOR:
+    case EXPR_BITXOR:
+        return CodegenExpressionBinaryOp(expr);
     case EXPR_EQUAL:
     case EXPR_LESS:
-        return CodegenExpressionBinary(expr);
+    case EXPR_GREATER:
+    case EXPR_EQLT:
+    case EXPR_EQGT:
+        return CodegenExpressionCompareOp(expr);
     case EXPR_CALL: 
         return CodegenExpressionCall(expr);
     case EXPR_CONST:

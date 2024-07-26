@@ -50,7 +50,7 @@
 
 %token <number> NUMBER 
 %token <lexid> ID
-%token EQUAL "=="
+%token EQUAL "==" EQLT "<=" EQGT ">="
 %token <lexid> IF "if" ELSE "else" FOR "for" BREAK "break"
 %token <lexid> CONTINUE "continue" RETURN "return" INT "int" VOID "void"
 
@@ -65,9 +65,12 @@
 %precedence THEN
 %precedence "else"
 %right '='
-%nonassoc "==" '<'
+%left '|'
+%left '^'
+%left '&'
+%nonassoc '<' '>' "==" "<=" ">="
 %left '+' '-'
-%left '*'
+%left '*' '/' '%'
 
 %%
 start: declarations { SetProgram(&$1); }
@@ -179,6 +182,7 @@ iter-stmt: "for" '(' iter-expr ';' iter-expr ';' iter-expr ')' statement {
     *$$.iterbody = $9;
 };
 iter-expr: expr | %empty {
+    InitExpression(&$$);
     $$.type = EXPR_CONST;
     $$.value = 1;
     $$.loc = @$;
@@ -204,15 +208,10 @@ expr-stmt: expr ';' {
     $$.type = STMT_EXPR;
     $$.loc = @$;
     $$.expr = $1;
-}
-expr: ID '(' arguments ')' {
-    InitExpression(&$$);
-    $$.type = EXPR_CALL;
-    $$.lexid = $1;
-    $$.loc = @$;
-    $$.args = $3;
-}
-| ID {
+};
+
+/* read/write expressions */
+expr: ID {
     InitExpression(&$$);
     $$.type = EXPR_VAR;
     $$.lexid = $1;
@@ -243,53 +242,62 @@ expr: ID '(' arguments ')' {
     $$.right = malloc(sizeof(Expression));
     *$$.right = $6;
     $$.loc = @$;
-}
-| expr '*' expr {
-    InitExpression(&$$);
-    $$.type = EXPR_MULT;
-    $$.left = malloc(sizeof(Expression));
-    *$$.left = $1;
-    $$.right = malloc(sizeof(Expression));
-    *$$.right = $3;
-    $$.loc = @$;
+};
+
+/* binary expression */
+%code {
+    #define INIT_BINARY_EXPR(Type, Dst, Left, Right, Loc) do { \
+        InitExpression(&Dst); \
+        Dst.type = Type; \
+        Dst.left = malloc(sizeof(Expression)); \
+        *Dst.left = Left; \
+        Dst.right = malloc(sizeof(Expression)); \
+        *Dst.right = Right; \
+        Dst.loc = Loc; \
+    } while (0)
+};
+expr: expr '*' expr {
+    INIT_BINARY_EXPR(EXPR_MUL, $$, $1, $3, @$);
 }
 | expr '+' expr {
-    InitExpression(&$$);
-    $$.type = EXPR_ADD;
-    $$.left = malloc(sizeof(Expression));
-    *$$.left = $1;
-    $$.right = malloc(sizeof(Expression));
-    *$$.right = $3;
-    $$.loc = @$;
+    INIT_BINARY_EXPR(EXPR_ADD, $$, $1, $3, @$);
 }
 | expr '-' expr {
-    InitExpression(&$$);
-    $$.type = EXPR_SUB;
-    $$.left = malloc(sizeof(Expression));
-    *$$.left = $1;
-    $$.right = malloc(sizeof(Expression));
-    *$$.right = $3;
-    $$.loc = @$;
+    INIT_BINARY_EXPR(EXPR_SUB, $$, $1, $3, @$);
+}
+| expr '/' expr {
+    INIT_BINARY_EXPR(EXPR_DIV, $$, $1, $3, @$);
+}
+| expr '%' expr {
+    INIT_BINARY_EXPR(EXPR_REM, $$, $1, $3, @$);
+}
+| expr '&' expr {
+    INIT_BINARY_EXPR(EXPR_BITAND, $$, $1, $3, @$);
+}
+| expr '^' expr {
+    INIT_BINARY_EXPR(EXPR_BITXOR, $$, $1, $3, @$);
+}
+| expr '|' expr {
+    INIT_BINARY_EXPR(EXPR_BITOR, $$, $1, $3, @$);
 }
 | expr "==" expr {
-    InitExpression(&$$);
-    $$.type = EXPR_EQUAL;
-    $$.left = malloc(sizeof(Expression));
-    *$$.left = $1;
-    $$.right = malloc(sizeof(Expression));
-    *$$.right = $3;
-    $$.loc = @$;
+    INIT_BINARY_EXPR(EXPR_EQUAL, $$, $1, $3, @$);
 }
 | expr '<' expr {
-    InitExpression(&$$);
-    $$.type = EXPR_LESS;
-    $$.left = malloc(sizeof(Expression));
-    *$$.left = $1;
-    $$.right = malloc(sizeof(Expression));
-    *$$.right = $3;
-    $$.loc = @$;
+    INIT_BINARY_EXPR(EXPR_LESS, $$, $1, $3, @$);
 }
-| '(' expr ')' {
+| expr '>' expr {
+    INIT_BINARY_EXPR(EXPR_GREATER, $$, $1, $3, @$);
+}
+| expr "<=" expr {
+    INIT_BINARY_EXPR(EXPR_EQLT, $$, $1, $3, @$);
+}
+| expr ">=" expr {
+    INIT_BINARY_EXPR(EXPR_EQGT, $$, $1, $3, @$);
+}
+
+/* unary expressions */
+expr: '(' expr ')' {
     $$ = $2;
 }
 | NUMBER {
@@ -302,6 +310,15 @@ expr: ID '(' arguments ')' {
     InitExpression(&$$);
     $$.type = EXPR_ERROR;
     $$.loc = @$;
+};
+
+/* function call */
+expr: ID '(' arguments ')' {
+    InitExpression(&$$);
+    $$.type = EXPR_CALL;
+    $$.lexid = $1;
+    $$.loc = @$;
+    $$.args = $3;
 };
 arguments: %empty {
     ArrayZero(&$$);
@@ -339,7 +356,7 @@ static int yyreport_syntax_error(const yypcontext_t *ctx) {
         if (lookahead != YYSYMBOL_YYEMPTY)
             Sprintf(&msg, " before %s", yysymbol_name(lookahead));
     }
-    ReportError(*yypcontext_location(ctx), msg.arr);
+    ReportError(*yypcontext_location(ctx), "%s", msg.arr);
     ArrayRelease(&msg);
     return res;
 }

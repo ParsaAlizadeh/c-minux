@@ -132,7 +132,7 @@ static void PrintExpression(Expression *expr) {
         printf(")");
         break;
     }
-    case EXPR_MULT: {
+    case EXPR_MUL: {
         printf("(");
         PrintExpression(expr->left);
         printf(" * ");
