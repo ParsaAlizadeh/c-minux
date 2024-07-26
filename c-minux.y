@@ -5,12 +5,8 @@
 }
 
 %locations
+%define api.location.type {Location}
 %define parse.error custom
-
-%code {
-    extern void PrintFileAtLoc(YYLTYPE *loc);
-    extern void ReportError(YYLTYPE *loc, const char *fmt, ...);
-}
 
 %union {
     DeclarationArray declarr;
@@ -83,6 +79,7 @@ declare: type ID ';' {
     InitDeclaration(&$$);
     $$.type = GetLex($1)->type;
     $$.lexid = $2;
+    $$.loc = @$;
 };
 type: "int" | "void";
 declare: type ID '[' NUMBER ']' ';' {
@@ -91,9 +88,10 @@ declare: type ID '[' NUMBER ']' ';' {
     $$.lexid = $2;
     $$.length = $4;
     if ($$.length <= 0) {
-        ReportError(&@4, "array length must be positive, got %d", $$.length);
+        ReportError(@4, "array length must be positive, got %d", $$.length);
         YYERROR;
     }
+    $$.loc = @$;
 };
 declare: type ID '(' params ')' compound-stmt {
     InitDeclaration(&$$);
@@ -101,6 +99,7 @@ declare: type ID '(' params ')' compound-stmt {
     $$.lexid = $2;
     $$.args = $4;
     $$.parity = $$.args.len;
+    $$.loc = @$;
     $$.body = malloc(sizeof(Statement));
     *$$.body = $6;
 }
@@ -119,20 +118,24 @@ param: "int" ID {
     InitDeclaration(&$$);
     $$.type = GetLex($1)->type;
     $$.lexid = $2;
+    $$.loc = @$;
 };
 param: "int" ID '[' ']' {
     InitDeclaration(&$$);
     $$.type = GetLex($1)->type;
     $$.lexid = $2;
     $$.length = -1;
+    $$.loc = @$;
 };
 compound-stmt: '{' declarations statements '}' {
     $$.type = STMT_COMPOUND;
+    $$.loc = @$;
     $$.declarr = $2;
     $$.stmtarr = $3;
 }
 | '{' error '}' {
     $$.type = STMT_ERROR;
+    $$.loc = @$;
 };
 statements: %empty {
     ArrayZero(&$$);
@@ -143,20 +146,25 @@ statements: statements statement {
 };
 statement: ';' {
     $$.type = STMT_NOP;
+    $$.loc = @$;
 }
 | expr-stmt | cond-stmt | iter-stmt | break-stmt | ret-stmt | compound-stmt;
 ret-stmt: "return" ';' {
     $$.type = STMT_RETVOID;
+    $$.loc = @$;
 }
 | "return" expr ';' {
     $$.type = STMT_RETEXPR;
     $$.expr = $2;
+    $$.loc = @$;
 };
 break-stmt: "break" ';' {
     $$.type = STMT_BREAK;
+    $$.loc = @$;
 };
 iter-stmt: "for" '(' expr ';' expr ';' expr ')' statement {
     $$.type = STMT_ITER;
+    $$.loc = @$;
     $$.iterinit = $3;
     $$.itercond = $5;
     $$.iterstep = $7;
@@ -165,6 +173,7 @@ iter-stmt: "for" '(' expr ';' expr ';' expr ')' statement {
 };
 cond-stmt: "if" '(' expr ')' statement "endif" {
     $$.type = STMT_COND;
+    $$.loc = @$;
     $$.ifcond = $3;
     $$.ifbody = malloc(sizeof(Statement));
     *$$.ifbody = $5;
@@ -172,6 +181,7 @@ cond-stmt: "if" '(' expr ')' statement "endif" {
 }
 | "if" '(' expr ')' statement "else" statement "endif" {
     $$.type = STMT_COND;
+    $$.loc = @$;
     $$.ifcond = $3;
     $$.ifbody = malloc(sizeof(Statement));
     *$$.ifbody = $5;
@@ -180,18 +190,21 @@ cond-stmt: "if" '(' expr ')' statement "endif" {
 };
 expr-stmt: expr ';' {
     $$.type = STMT_EXPR;
+    $$.loc = @$;
     $$.expr = $1;
 }
 expr: ID '(' arguments ')' {
     InitExpression(&$$);
     $$.type = EXPR_CALL;
     $$.lexid = $1;
+    $$.loc = @$;
     $$.args = $3;
 }
 | ID {
     InitExpression(&$$);
     $$.type = EXPR_VAR;
     $$.lexid = $1;
+    $$.loc = @$;
 }
 | ID '[' expr ']' {
     InitExpression(&$$);
@@ -199,6 +212,7 @@ expr: ID '(' arguments ')' {
     $$.lexid = $1;
     $$.left = malloc(sizeof(Expression));
     *$$.left = $3;
+    $$.loc = @$;
 }
 | ID '=' expr {
     InitExpression(&$$);
@@ -206,6 +220,7 @@ expr: ID '(' arguments ')' {
     $$.lexid = $1;
     $$.right = malloc(sizeof(Expression));
     *$$.right = $3;
+    $$.loc = @$;
 }
 | ID '[' expr ']' '=' expr {
     InitExpression(&$$);
@@ -215,6 +230,7 @@ expr: ID '(' arguments ')' {
     *$$.left = $3;
     $$.right = malloc(sizeof(Expression));
     *$$.right = $6;
+    $$.loc = @$;
 }
 | expr '*' expr {
     InitExpression(&$$);
@@ -223,6 +239,7 @@ expr: ID '(' arguments ')' {
     *$$.left = $1;
     $$.right = malloc(sizeof(Expression));
     *$$.right = $3;
+    $$.loc = @$;
 }
 | expr '+' expr {
     InitExpression(&$$);
@@ -231,6 +248,7 @@ expr: ID '(' arguments ')' {
     *$$.left = $1;
     $$.right = malloc(sizeof(Expression));
     *$$.right = $3;
+    $$.loc = @$;
 }
 | expr '-' expr {
     InitExpression(&$$);
@@ -239,6 +257,7 @@ expr: ID '(' arguments ')' {
     *$$.left = $1;
     $$.right = malloc(sizeof(Expression));
     *$$.right = $3;
+    $$.loc = @$;
 }
 | expr "==" expr {
     InitExpression(&$$);
@@ -247,6 +266,7 @@ expr: ID '(' arguments ')' {
     *$$.left = $1;
     $$.right = malloc(sizeof(Expression));
     *$$.right = $3;
+    $$.loc = @$;
 }
 | expr '<' expr {
     InitExpression(&$$);
@@ -255,6 +275,7 @@ expr: ID '(' arguments ')' {
     *$$.left = $1;
     $$.right = malloc(sizeof(Expression));
     *$$.right = $3;
+    $$.loc = @$;
 }
 | '(' expr ')' {
     $$ = $2;
@@ -263,10 +284,12 @@ expr: ID '(' arguments ')' {
     InitExpression(&$$);
     $$.type = EXPR_CONST;
     $$.value = $1;
+    $$.loc = @$;
 }
 | '(' error ')' {
     InitExpression(&$$);
     $$.type = EXPR_ERROR;
+    $$.loc = @$;
 };
 arguments: %empty {
     ArrayZero(&$$);
@@ -284,7 +307,7 @@ arg-list: arg-list ',' expr {
 static int yyreport_syntax_error(const yypcontext_t *ctx) {
     int res = 0;
     YYLOCATION_PRINT(stderr, yypcontext_location(ctx));
-    fprintf(stderr, ": syntax error:");
+    Str msg = {0};
     // Report the tokens expected at this point.
     enum { TOKENMAX = 5 };
     yysymbol_kind_t expected[TOKENMAX];
@@ -294,17 +317,17 @@ static int yyreport_syntax_error(const yypcontext_t *ctx) {
         // Forward errors to yyparse.
         res = n;
     else if (n == 0) {
-        fprintf(stderr, " unexpected");
+        Sprintf(&msg, "unexpected");
         if (lookahead != YYSYMBOL_YYEMPTY)
-            fprintf(stderr, " %s", yysymbol_name(lookahead));
+            Sprintf(&msg, " %s", yysymbol_name(lookahead));
     } else {
         for (int i = 0; i < n; ++i)
-            fprintf (stderr, "%s %s", i == 0 ? " expected" : " or", yysymbol_name(expected[i]));
+            Sprintf(&msg, "%s %s", i == 0 ? "expected" : " or", yysymbol_name(expected[i]));
         // Report the unexpected token.
         if (lookahead != YYSYMBOL_YYEMPTY)
-            fprintf(stderr, " before %s", yysymbol_name(lookahead));
+            Sprintf(&msg, " before %s", yysymbol_name(lookahead));
     }
-    fprintf(stderr, "\n");
-    PrintFileAtLoc(yypcontext_location(ctx));
+    ReportError(*yypcontext_location(ctx), msg.arr);
+    ArrayRelease(&msg);
     return res;
 }

@@ -1,5 +1,6 @@
 #include "main.h"
 
+#include <stdlib.h>
 #include <stdio.h>
 #include <ctype.h>
 #include <stdarg.h>
@@ -190,204 +191,13 @@ void SetProgram(DeclarationArray *p) {
     program = *p;
 }
 
-const char *StrType(int type) {
-    if (type == INT)
-        return "int";
-    if (type == VOID)
-        return "void";
-    return "???";
-}
-
-void PrintDeclarationArray(DeclarationArray *specarr);
-void PrintStatement(Statement *stmt);
-void PrintExpression(Expression *expr);
-
-void PrintDeclaration(Declaration *decl) {
-    printf("%s %s", StrType(decl->type), GetLex(decl->lexid)->lex);
-    if (decl->length != 0) {
-        printf("[%d]", decl->length);
-        return;
-    }
-    if (decl->parity != -1) {
-        printf("(");
-        for (int j = 0; j < decl->args.len; j++) {
-            Declaration *arg = &decl->args.arr[j];
-            if (j > 0)
-                printf(", ");
-            PrintDeclaration(arg);
-        }
-        printf(")\n");
-        PrintStatement(decl->body);
-        return;
-    }
-}
-
-void PrintDeclarationArray(DeclarationArray *declarr) {
-    for (int i = 0; i < declarr->len; i++) {
-        Declaration *decl = &declarr->arr[i];
-        PrintDeclaration(decl);
-        printf(";\n");
-    }
-}
-
-void PrintStatement(Statement *stmt) {
-    switch (stmt->type) {
-    case STMT_EXPR: {
-        PrintExpression(&stmt->expr);
-        printf(";");
-        break;
-    }
-    case STMT_COND: {
-        printf("if (");
-        PrintExpression(&stmt->ifcond);
-        printf(")\n");
-        PrintStatement(stmt->ifbody);
-        if (stmt->elsebody != NULL) {
-            printf("\nelse\n");
-            PrintStatement(stmt->elsebody);
-        }
-        break;
-    }
-    case STMT_ITER: {
-        printf("for (");
-        PrintExpression(&stmt->iterinit);
-        printf("; ");
-        PrintExpression(&stmt->itercond);
-        printf("; ");
-        PrintExpression(&stmt->iterstep);
-        printf(")\n");
-        PrintStatement(stmt->iterbody);
-        break;
-    }
-    case STMT_BREAK: {
-        printf("break;");
-        break;
-    }
-    case STMT_RETVOID: {
-        printf("return;");
-        break;
-    }
-    case STMT_RETEXPR: {
-        printf("return ");
-        PrintExpression(&stmt->expr);
-        printf(";");
-        break;
-    }
-    case STMT_COMPOUND: {
-        printf("{\n");
-        PrintDeclarationArray(&stmt->declarr);
-        StatementArray *stmtarr = &stmt->stmtarr;
-        for (int i = 0; i < stmtarr->len; i++) {
-            Statement *stmt = &stmtarr->arr[i];
-            PrintStatement(stmt);
-            printf("\n");
-        }
-        printf("}");
-        break;
-    }
-    case STMT_NOP: {
-        printf(";");
-        break;
-    }
-    default:
-        printf("???STATEMENT???");
-    }
-}
-
-void PrintExpression(Expression *expr) {
-    switch(expr->type) {
-    case EXPR_VAR: {
-        printf("%s", GetLex(expr->lexid)->lex);
-        break;
-    }
-    case EXPR_ARRAYCELL: {
-        printf("%s[", GetLex(expr->lexid)->lex);
-        PrintExpression(expr->left);
-        printf("]");
-        break;
-    }
-    case EXPR_VAR_ASSIGN: {
-        printf("(%s = ", GetLex(expr->lexid)->lex);
-        PrintExpression(expr->right);
-        printf(")");
-        break;
-    }
-    case EXPR_ARRAYCELL_ASSIGN: {
-        printf("(%s[", GetLex(expr->lexid)->lex);
-        PrintExpression(expr->left);
-        printf("] = ");
-        PrintExpression(expr->right);
-        printf(")");
-        break;
-    }
-    case EXPR_MULT: {
-        printf("(");
-        PrintExpression(expr->left);
-        printf(" * ");
-        PrintExpression(expr->right);
-        printf(")");
-        break;
-    }
-    case EXPR_ADD: {
-        printf("(");
-        PrintExpression(expr->left);
-        printf(" + ");
-        PrintExpression(expr->right);
-        printf(")");
-        break;
-    }
-    case EXPR_SUB: {
-        printf("(");
-        PrintExpression(expr->left);
-        printf(" - ");
-        PrintExpression(expr->right);
-        printf(")");
-        break;
-    }
-    case EXPR_EQUAL: {
-        printf("(");
-        PrintExpression(expr->left);
-        printf(" == ");
-        PrintExpression(expr->right);
-        printf(")");
-        break;
-    }
-    case EXPR_LESS: {
-        printf("(");
-        PrintExpression(expr->left);
-        printf(" < ");
-        PrintExpression(expr->right);
-        printf(")");
-        break;
-    }
-    case EXPR_CONST: {
-        printf("%d", expr->value);
-        break;
-    }
-    case EXPR_CALL: {
-        printf("%s(", GetLex(expr->lexid)->lex);
-        ExpressionArray *args = &expr->args;
-        for (int i = 0; i < args->len; i++) {
-            Expression *arg = &args->arr[i];
-            if (i > 0)
-                printf(", ");
-            PrintExpression(arg);
-        }
-        printf(")");
-        break;
-    }
-    default:
-        printf("???EXPR???");
-    }
-}
-
-void PrintFileAtLoc(YYLTYPE *loc) {
+void PrintFileAtLoc(Location loc) {
     FILE *finp;
     if ((finp = fopen("input.txt", "r")) == NULL)
         eprintf("fopen(input.txt):");
     int line = 1, column = 1;
     int c;
-    while (line < loc->first_line) {
+    while (line < loc.first_line) {
         c = fgetc(finp);
         if (c == EOF)
             eprintf("unexpected EOF");
@@ -397,9 +207,8 @@ void PrintFileAtLoc(YYLTYPE *loc) {
             column = 1;
         }
     }
-    // fprintf(stderr, "%d-%d\n", loc->first_column, loc->last_column);
     Str str = {0};
-    while (line == loc->first_line) {
+    while (line == loc.first_line) {
         c = fgetc(finp);
         if (c == EOF || c == '\n')
             break;
@@ -408,15 +217,15 @@ void PrintFileAtLoc(YYLTYPE *loc) {
     Append(&str, '\0');
     fprintf(stderr, " %d\t| %s\n", line, str.arr);
     fprintf(stderr, " \t| ");
-    for (int i = 1; i < loc->first_column; i++) {
+    for (int i = 1; i < loc.first_column; i++) {
         c = ' ';
         if (str.arr[i - 1] == '\t')
             c = '\t';
         fputc(c, stderr);
     }
     fputc('^', stderr);
-    int last_column = loc->first_line == loc->last_line ? loc->last_column : 1 + StrLen(&str);
-    for (int i = loc->first_column+1; i < last_column; i++) {
+    int last_column = loc.first_line == loc.last_line ? loc.last_column : 1 + StrLen(&str);
+    for (int i = loc.first_column+1; i < last_column; i++) {
         fputc('~', stderr);
         if (str.arr[i - 1] == '\t')
             fputc('\t', stderr);
@@ -426,14 +235,27 @@ void PrintFileAtLoc(YYLTYPE *loc) {
     fclose(finp);
 }
 
-void ReportError(YYLTYPE *loc, const char *fmt, ...) {
+static void PrintLocation(Location loc) {
+    fprintf(stderr, "%d.%d", loc.first_line, loc.first_column);
+    if (loc.last_line != loc.first_line) {
+        fprintf(stderr, "-%d.%d", loc.last_line, loc.first_column);
+    } else if (loc.last_column > loc.first_column + 1) {
+        fprintf(stderr, "-%d", loc.last_column);
+    }
+}
+
+int errorhappend;
+
+void ReportError(Location loc, const char *fmt, ...) {
     va_list args;
-    fprintf(stderr, "%d.%d: syntax error: ", loc->first_line, loc->first_column);
+    PrintLocation(loc);
+    fprintf(stderr, ": syntax error: ");
     va_start(args, fmt);
     vfprintf(stderr, fmt, args);
     va_end(args);
     fprintf(stderr, "\n");
     PrintFileAtLoc(loc);
+    errorhappend++;
 }
 
 int main() {
@@ -446,13 +268,18 @@ int main() {
     // PrintDeclarationArray(&program);
     CreateCodegen();
     CodegenProgram(&program);
-    OutputCode();
+    if (errorhappend > 0)
+        weprintf("%d syntax error(s) reported, not generating code", errorhappend);
+    else
+        OutputCode();
     DisposeCodegen();
     for (int i = 0; i < program.len; i++) {
         Declaration *decl = &program.arr[i];
         DestructDeclaration(decl);
     }
     ArrayRelease(&program);
-    return 0;
+    if (errorhappend > 0)
+        return EXIT_FAILURE;
+    return EXIT_SUCCESS;
 }
 

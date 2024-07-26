@@ -3,6 +3,8 @@
 
 #include "array.h"
 
+typedef struct Location Location;
+
 typedef struct LexEnt LexEnt;
 
 typedef struct Declaration Declaration;
@@ -14,6 +16,10 @@ typedef Array(Statement) StatementArray;
 typedef struct Expression Expression;
 typedef Array(Expression) ExpressionArray;
 
+struct Location {
+    int first_line, first_column, last_line, last_column;
+};
+
 struct LexEnt {
     const char *lex;
     int type;
@@ -21,6 +27,7 @@ struct LexEnt {
 
 struct Declaration {
     int type, length, parity, lexid;
+    Location loc;
     DeclarationArray args;
     Statement *body;
 };
@@ -46,6 +53,7 @@ enum {
 struct Expression {
     int type, lexid, value;
     Expression *left, *right;
+    Location loc;
     ExpressionArray args;
 };
 
@@ -66,6 +74,7 @@ enum {
 
 struct Statement {
     int type;
+    Location loc;
     union {
         struct {
             DeclarationArray declarr;
@@ -90,9 +99,14 @@ extern LexEnt *GetLex(int);
 
 extern void SetProgram(DeclarationArray *);
 
+extern void PrintDeclarationArray(DeclarationArray *);
+
 extern void CreateCodegen(void);
 extern void OutputCode(void);
 extern void DisposeCodegen(void);
 extern void CodegenProgram(DeclarationArray *);
+
+extern void PrintFileAtLoc(Location loc);
+extern void ReportError(Location loc, const char *fmt, ...);
 
 #endif
