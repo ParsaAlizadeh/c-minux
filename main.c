@@ -18,7 +18,6 @@ struct {
 } keywords[] = {
     { IF, "if" },
     { ELSE, "else" },
-    { ENDIF, "endif" },
     { INT, "int" },
     { VOID, "void" },
     { FOR, "for" },

@@ -51,7 +51,8 @@
 %token <number> NUMBER 
 %token <lexid> ID
 %token EQUAL "=="
-%token <lexid> IF "if" ELSE "else" ENDIF "endif" FOR "for" BREAK "break" CONTINUE "continue" RETURN "return" INT "int" VOID "void"
+%token <lexid> IF "if" ELSE "else" FOR "for" BREAK "break"
+%token <lexid> CONTINUE "continue" RETURN "return" INT "int" VOID "void"
 
 %nterm <declarr> declarations params param-list
 %nterm <decl> declare param
@@ -61,6 +62,8 @@
 %nterm <expr> expr iter-expr
 %nterm <exprarr> arguments arg-list
 
+%precedence THEN
+%precedence "else"
 %right '='
 %nonassoc "==" '<'
 %left '+' '-'
@@ -180,7 +183,7 @@ iter-expr: expr | %empty {
     $$.value = 1;
     $$.loc = @$;
 };
-cond-stmt: "if" '(' expr ')' statement "endif" {
+cond-stmt: "if" '(' expr ')' %prec THEN statement {
     $$.type = STMT_COND;
     $$.loc = @$;
     $$.ifcond = $3;
@@ -188,7 +191,7 @@ cond-stmt: "if" '(' expr ')' statement "endif" {
     *$$.ifbody = $5;
     $$.elsebody = NULL;
 }
-| "if" '(' expr ')' statement "else" statement "endif" {
+| "if" '(' expr ')' %prec THEN statement "else" statement {
     $$.type = STMT_COND;
     $$.loc = @$;
     $$.ifcond = $3;
