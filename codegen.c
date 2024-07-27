@@ -411,6 +411,42 @@ static Value GetConstantValue(int N) {
     return c;
 }
 
+static Value CodegenExpressionConditional(Expression *expr) {
+    SymEnt *fnent = &symtab.arr[GetFunction()];
+    LLVMValueRef fnvalref = fnent->value.llvm;
+    LLVMBasicBlockRef longblock, shortblock;
+    longblock = LLVMAppendBasicBlockInContext(context, fnvalref, "long");
+    shortblock = LLVMAppendBasicBlockInContext(context, fnvalref, "short");
+    /* entry block */
+    Value ret;
+    InitValue(&ret);
+    ret.type = LVALUE;
+    ret.kind.type = KIND_INT;
+    ret.llvm = LLVMBuildAlloca(builder, intTy, "cond");
+    Value left = GetRValue(CodegenExpression(expr->left));
+    if (left.kind.type != KIND_INT) {
+        ReportError(expr->loc, "expected left hand side of conditional expression to be int");
+        left = GetConstantValue(expr->type == EXPR_ANDTHEN ? 0 : 1); /* always branch to long */
+    }
+    LLVMBuildStore(builder, left.llvm, ret.llvm);
+    /* if (predop pred 0) then branch to long */
+    LLVMIntPredicate predop = expr->type == EXPR_ANDTHEN ? LLVMIntNE : LLVMIntEQ;
+    LLVMValueRef pred = LLVMBuildICmp(builder, predop, left.llvm, GetConstantValue(0).llvm, "icmp");
+    LLVMBuildCondBr(builder, pred, longblock, shortblock);
+    /* long block */
+    LLVMPositionBuilderAtEnd(builder, longblock);
+    Value right = GetRValue(CodegenExpression(expr->right));
+    if (right.kind.type != KIND_INT) {
+        ReportError(expr->loc, "expected right hand side of conditional expression to be int");
+        right = GetConstantValue(expr->type == EXPR_ANDTHEN ? 0 : 1);
+    }
+    LLVMBuildStore(builder, right.llvm, ret.llvm);
+    LLVMBuildBr(builder, shortblock);
+    /* short block */
+    LLVMPositionBuilderAtEnd(builder, shortblock);
+    return GetRValue(ret);
+}
+
 static Value CodegenExpression(Expression *expr) {
     switch (expr->type) {
     case EXPR_VAR:
@@ -434,6 +470,9 @@ static Value CodegenExpression(Expression *expr) {
     case EXPR_EQGT:
     case EXPR_NOTEQ:
         return CodegenExpressionCompareOp(expr);
+    case EXPR_ANDTHEN:
+    case EXPR_ORELSE:
+        return CodegenExpressionConditional(expr);
     case EXPR_CALL: 
         return CodegenExpressionCall(expr);
     case EXPR_CONST:

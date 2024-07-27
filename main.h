@@ -75,6 +75,8 @@ enum ExprType {
     EXPR_EQLT,
     EXPR_EQGT,
     EXPR_NOTEQ,
+    EXPR_ANDTHEN,
+    EXPR_ORELSE,
     EXPR_CALL,
     EXPR_CONST,
     EXPR_ERROR

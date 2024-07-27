@@ -52,12 +52,14 @@ void InitLexTab(void) {
     }
 }
 
-int line = 1, column = 1;
+static int line = 1, column = 1, last_line = 1, last_column = 0;
 
 static int Fgetc(void) {
     int c = fgetc(finp);
     if (c == EOF)
         return c;
+    last_line = line;
+    last_column = column;
     if (c == '\n') {
         line++;
         column = 1;
@@ -69,9 +71,8 @@ static int Fgetc(void) {
 
 static void Fungetc(int c) {
     ungetc(c, finp);
-    if (c == '\n')
-        eprintf("cannot ungetc newline character");
-    column--;
+    line = last_line;
+    column = last_column;
 }
 
 static int eqfollow[] = {
@@ -112,7 +113,7 @@ int yylex(void) {
         yylloc.last_column = column;
         return NUMBER;
     }
-    if (isalpha(c)) {
+    if (isalpha(c) || c == '_') {
         Str lex = {0};
         do {
             Append(&lex, c);
@@ -126,12 +127,20 @@ int yylex(void) {
         ArrayRelease(&lex);
         return GetLex(yylval.lexid)->type;
     }
-    /* operators which could follow by equal sign */
+    /* operators which could follow by equal sign, also && || */
     if (strchr("=<>!|^&+-*/%", c) != NULL) {
         int cnxt = Fgetc();
         if (cnxt == '=') {
             yylloc.last_column = column;
             return eqfollow[c];
+        }
+        if (c == '&' && cnxt == '&') {
+            yylloc.last_column = column;
+            return ANDTHEN;
+        }
+        if (c == '|' && cnxt == '|') {
+            yylloc.last_column = column;
+            return ORELSE;
         }
         if (cnxt != EOF)
             Fungetc(cnxt);

@@ -53,6 +53,7 @@
 %token EQUAL "==" EQLT "<=" EQGT ">=" NOTEQ "!="
 %token OREQ "|=" XOREQ "^=" ANDEQ "&=" ADDEQ "+=" SUBEQ "-="
 %token MULEQ "*=" DIVEQ "/=" REMEQ "%="
+%token ANDTHEN "&&" ORELSE "||"
 %token <lexid> IF "if" ELSE "else" FOR "for" BREAK "break"
 %token <lexid> CONTINUE "continue" RETURN "return" INT "int" VOID "void"
 
@@ -67,6 +68,8 @@
 %precedence THEN
 %precedence "else"
 %right '=' "|=" "^=" "&=" "+=" "-=" "*=" "/=" "%="
+%left "||"
+%left "&&"
 %left '|'
 %left '^'
 %left '&'
@@ -283,6 +286,12 @@ expr: expr '*' expr {
 }
 | expr "!=" expr {
     INIT_BINARY_EXPR(EXPR_NOTEQ, $$, $1, $3, @$);
+};
+| expr "&&" expr {
+    INIT_BINARY_EXPR(EXPR_ANDTHEN, $$, $1, $3, @$);
+};
+| expr "||" expr {
+    INIT_BINARY_EXPR(EXPR_ORELSE, $$, $1, $3, @$);
 };
 
 /* binary assignment expressions */
