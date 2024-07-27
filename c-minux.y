@@ -59,7 +59,7 @@
 %nterm <lexid> type
 %nterm <stmtarr> statements
 %nterm <stmt> statement compound-stmt expr-stmt cond-stmt iter-stmt break-stmt continue-stmt ret-stmt
-%nterm <expr> expr iter-expr
+%nterm <expr> expr iter-expr lvalue
 %nterm <exprarr> arguments arg-list
 
 %precedence THEN
@@ -81,30 +81,33 @@ declarations: declarations declare {
     $$ = $1;
     Append(&$$, $2);
 };
+type: "int" | "void";
 declare: type ID ';' {
     InitDeclaration(&$$);
-    $$.type = GetLex($1)->type;
     $$.lexid = $2;
+    $$.kind.type = GetLex($1)->type == VOID ? KIND_VOID : KIND_INT;
     $$.loc = @$;
 };
-type: "int" | "void";
 declare: type ID '[' NUMBER ']' ';' {
     InitDeclaration(&$$);
-    $$.type = GetLex($1)->type;
     $$.lexid = $2;
-    $$.length = $4;
-    if ($$.length <= 0) {
-        ReportError(@4, "array length must be positive, got %d", $$.length);
+    $$.kind.type = GetLex($1)->type == VOID ? KIND_VOID : KIND_ARRAY;
+    $$.kind.length = $4;
+    if ($$.kind.length <= 0) {
+        ReportError(@4, "expected array length to be positive, got %d", $$.kind.length);
         YYERROR;
     }
     $$.loc = @$;
 };
 declare: type ID '(' params ')' compound-stmt {
     InitDeclaration(&$$);
-    $$.type = GetLex($1)->type;
     $$.lexid = $2;
     $$.args = $4;
-    $$.parity = $$.args.len;
+    $$.kind.type = GetLex($1)->type == VOID ? KIND_RETVOID : KIND_RETINT;
+    ArrayPinchN(&$$.kind.args, $$.args.len);
+    for (int i = 0; i < $$.args.len; i++) {
+        Append(&$$.kind.args, $$.args.arr[i].kind);
+    }
     $$.loc = @$;
     $$.body = malloc(sizeof(Statement));
     *$$.body = $6;
@@ -122,15 +125,14 @@ param-list: param-list ',' param {
 };
 param: "int" ID {
     InitDeclaration(&$$);
-    $$.type = GetLex($1)->type;
+    $$.kind.type = KIND_INT;
     $$.lexid = $2;
     $$.loc = @$;
 };
 param: "int" ID '[' ']' {
     InitDeclaration(&$$);
-    $$.type = GetLex($1)->type;
+    $$.kind.type = KIND_POINTER;
     $$.lexid = $2;
-    $$.length = -1;
     $$.loc = @$;
 };
 compound-stmt: '{' declarations statements '}' {
@@ -211,7 +213,7 @@ expr-stmt: expr ';' {
 };
 
 /* read/write expressions */
-expr: ID {
+lvalue: ID {
     InitExpression(&$$);
     $$.type = EXPR_VAR;
     $$.lexid = $1;
@@ -224,23 +226,15 @@ expr: ID {
     $$.left = malloc(sizeof(Expression));
     *$$.left = $3;
     $$.loc = @$;
-}
-| ID '=' expr {
+};
+expr: lvalue 
+| lvalue '=' expr {
     InitExpression(&$$);
-    $$.type = EXPR_VAR_ASSIGN;
-    $$.lexid = $1;
+    $$.type = EXPR_ASSIGN;
+    $$.left = malloc(sizeof(Expression));
+    *$$.left = $1;
     $$.right = malloc(sizeof(Expression));
     *$$.right = $3;
-    $$.loc = @$;
-}
-| ID '[' expr ']' '=' expr {
-    InitExpression(&$$);
-    $$.type = EXPR_ARRAYCELL_ASSIGN;
-    $$.lexid = $1;
-    $$.left = malloc(sizeof(Expression));
-    *$$.left = $3;
-    $$.right = malloc(sizeof(Expression));
-    *$$.right = $6;
     $$.loc = @$;
 };
 

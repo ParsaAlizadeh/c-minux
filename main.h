@@ -7,6 +7,9 @@ typedef struct Location Location;
 
 typedef struct LexEnt LexEnt;
 
+typedef struct Kind Kind;
+typedef Array(Kind) KindArray;
+
 typedef struct Declaration Declaration;
 typedef Array(Declaration) DeclarationArray;
 
@@ -25,9 +28,28 @@ struct LexEnt {
     int type;
 };
 
+enum KindType {
+    KIND_VOID,
+    KIND_INT,
+    KIND_ARRAY,
+    KIND_POINTER,
+    KIND_RETVOID,
+    KIND_RETINT,
+};
+
+struct Kind {
+    enum KindType type;
+    int length;
+    KindArray args;
+};
+
+extern void InitKind(Kind *);
+extern void DestructKind(Kind *);
+
 struct Declaration {
-    int type, length, parity, lexid;
+    int lexid;
     Location loc;
+    Kind kind;
     DeclarationArray args;
     Statement *body;
 };
@@ -35,11 +57,10 @@ struct Declaration {
 extern void InitDeclaration(Declaration *);
 extern void DestructDeclaration(Declaration *);
 
-enum {
+enum ExprType {
     EXPR_VAR,
     EXPR_ARRAYCELL,
-    EXPR_VAR_ASSIGN,
-    EXPR_ARRAYCELL_ASSIGN,
+    EXPR_ASSIGN,
     EXPR_MUL,
     EXPR_ADD,
     EXPR_SUB,
@@ -59,7 +80,8 @@ enum {
 };
 
 struct Expression {
-    int type, lexid, value;
+    enum ExprType type;
+    int lexid, value;
     Expression *left, *right;
     Location loc;
     ExpressionArray args;
@@ -68,7 +90,7 @@ struct Expression {
 extern void InitExpression(Expression *);
 extern void DestructExpression(Expression *);
 
-enum {
+enum StmtType {
     STMT_EXPR,
     STMT_COND,
     STMT_ITER,
@@ -82,7 +104,7 @@ enum {
 };
 
 struct Statement {
-    int type;
+    enum StmtType type;
     Location loc;
     union {
         struct {

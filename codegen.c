@@ -3,6 +3,7 @@
 #include <llvm-c/Core.h>
 #include <llvm-c/Types.h>
 
+#include "array.h"
 #include "c-minux.tab.h"
 #include "eprintf.h"
 #include "main.h"
@@ -36,36 +37,28 @@ void DisposeCodegen(void) {
     LLVMContextDispose(context);
 }
 
-enum {
-    TY_INT,
-    TY_ARRAY,
-    TY_POINTER,
-    TY_RETVOID,
-    TY_RETINT,
+enum ValueType {
+    LVALUE,
+    RVALUE
 };
 
-typedef struct CType CType;
-struct CType {
-    int kind;
-    LLVMTypeRef typeref;
-    Array(CType) args;
+typedef struct Value Value;
+struct Value {
+    enum ValueType type;
+    LLVMValueRef llvm;
+    Kind kind;
 };
 
-void InitCType(CType *cty) {
-    ArrayZero(&cty->args);
-    cty->kind = -1;
-    cty->typeref = NULL;
-}
-
-void DisposeCType(CType *cty) {
-    ArrayRelease(&cty->args);
+static void InitValue(Value *value) {
+    InitKind(&value->kind);
+    value->type = RVALUE;
+    value->llvm = NULL;
 }
 
 typedef struct SymEnt SymEnt;
 struct SymEnt {
     int lexid, scope;
-    LLVMValueRef llvmval;
-    CType cty;
+    Value value;
 };
 
 static Array(SymEnt) symtab;
@@ -94,9 +87,8 @@ static void EndScope(void) {
     // printf(">> End scope %d\n", sc);
     // PrintSymtab();
     int i;
-    for (i = symtab.len; i > 0 && symtab.arr[i - 1].scope == sc; i--) {
-        DisposeCType(&symtab.arr[i - 1].cty);
-    }
+    for (i = symtab.len; i > 0 && symtab.arr[i - 1].scope == sc; i--)
+        ;
     symtab.len = i;
 }
 
@@ -114,262 +106,308 @@ static int GetScope(void) {
     return ArrayLast(&scopest);
 }
 
+static int IsFunctionKind(Kind *kind) {
+    return kind->type == KIND_RETVOID || kind->type == KIND_RETINT;
+}
+
 static int GetFunction(void) {
     for (int i = symtab.len - 1; i >= 0; i--) {
         SymEnt *ent = &symtab.arr[i];
-        if (ent->cty.kind == TY_RETINT || ent->cty.kind == TY_RETVOID)
+        if (IsFunctionKind(&ent->value.kind))
             return i;
     }
     return -1;
 }
 
+static LLVMTypeRef GetTypeRefRValue(Kind *kind) {
+    switch (kind->type) {
+    case KIND_VOID:
+        return voidTy;
+    case KIND_INT:
+        return intTy;
+    case KIND_POINTER:
+        return ptrTy;
+    case KIND_ARRAY:
+        return LLVMArrayType2(intTy, kind->length);
+    case KIND_RETINT:
+    case KIND_RETVOID: {
+        LLVMTypeRef retTy = kind->type == KIND_RETINT ? intTy : voidTy;
+        Array(LLVMTypeRef) args = {0};
+        ArrayPinchN(&args, kind->args.len);
+        for (int i = 0; i < kind->args.len; i++) {
+            Append(&args, GetTypeRefRValue(&kind->args.arr[i]));
+        }
+        LLVMTypeRef fnTy = LLVMFunctionType(retTy, args.arr, args.len, 0);
+        ArrayRelease(&args);
+        return fnTy;
+    }
+    default:
+        eprintf("unknown kind type");
+    }
+}
+
 static void CodegenGlobalVariable(Declaration *decl) {
     const char *lex = GetLex(decl->lexid)->lex;
-    if (decl->type == VOID) {
-        ReportError(decl->loc, "unexpected type void for global variable \"%s\"", lex);
+    if (decl->kind.type == KIND_VOID) {
+        ReportError(decl->loc, "unexpected type void for variable \"%s\"", lex);
         return;
     }
     SymEnt ent = { 
         .lexid = decl->lexid, 
         .scope = 0,
     };
-    InitCType(&ent.cty);
+    Value *value = &ent.value;
+    InitValue(value);
+    value->type = LVALUE;
+    value->kind = decl->kind;
     if (SearchSymbol(decl->lexid) != -1) {
         ReportError(decl->loc, "unexpected redeclaration of \"%s\" in the global scope", lex);
         return;
     }
-    if (decl->length == 0) {
-        ent.cty.typeref = intTy;
-        ent.llvmval = LLVMAddGlobal(module, intTy, lex);
-        LLVMSetInitializer(ent.llvmval, LLVMConstNull(intTy));
-        ent.cty.kind = TY_INT;
-        Append(&symtab, ent);
-        return;
-    }
-    ent.cty.typeref = LLVMArrayType2(intTy, decl->length);
-    ent.llvmval = LLVMAddGlobal(module, ent.cty.typeref, lex);
-    LLVMSetInitializer(ent.llvmval, LLVMConstNull(ent.cty.typeref));
-    ent.cty.kind = TY_ARRAY;
+    LLVMTypeRef ty = GetTypeRefRValue(&value->kind);
+    value->llvm = LLVMAddGlobal(module, ty, lex);
+    LLVMSetInitializer(value->llvm, LLVMConstNull(ty));
     Append(&symtab, ent);
 }
 
 static void CodegenLocalVariable(Declaration *decl) {
     const char *lex = GetLex(decl->lexid)->lex;
-    if (decl->parity != -1) {
-        ReportError(decl->loc, "unexpected nested function \"%s\"", lex);
+    if (decl->kind.type == KIND_VOID) {
+        ReportError(decl->loc, "unexpected type void for variable \"%s\"", lex);
         return;
     }
-    if (decl->type == VOID) {
-        ReportError(decl->loc, "unexpected type void for local variable \"%s\"", lex);
+    if (decl->kind.type == KIND_RETVOID || decl->kind.type == KIND_RETINT) {
+        ReportError(decl->loc, "unexpected nested function \"%s\"", lex);
         return;
     }
     SymEnt ent = {
         .lexid = decl->lexid,
         .scope = GetScope()
     };
-    InitCType(&ent.cty);
-    if (decl->length == 0) {
-        ent.cty.kind = TY_INT;
-        ent.cty.typeref = intTy;
-        ent.llvmval = LLVMBuildAlloca(builder, intTy, lex);
-    } else {
-        ent.cty.kind = TY_ARRAY;
-        ent.cty.typeref = LLVMArrayType2(intTy, decl->length);
-        ent.llvmval = LLVMBuildAlloca(builder, ent.cty.typeref, lex);
-    }
+    Value *value = &ent.value;
+    InitValue(value);
+    value->type = LVALUE;
+    value->kind = decl->kind;
+    LLVMTypeRef ty = GetTypeRefRValue(&value->kind);
+    value->llvm = LLVMBuildAlloca(builder, ty, lex);
     Append(&symtab, ent);
 }
 
-static LLVMValueRef CodegenExpression(Expression *);
-
-static int IsPointerKind(int kind) {
-    return kind == TY_ARRAY || kind == TY_POINTER;
+static int IsPointerKind(Kind *kind) {
+    return kind->type == KIND_ARRAY || kind->type == KIND_POINTER;
 }
 
-static int IsFunctionKind(int kind) {
-    return kind == TY_RETINT || kind == TY_RETVOID;
+const Value NullValue = {
+    .type = RVALUE,
+    .kind.type = KIND_VOID,
+    .llvm = NULL
+};
+
+static Value GetRValue(Value lvalue) {
+    if (lvalue.kind.type != KIND_INT)
+        return NullValue;
+    if (lvalue.type == RVALUE)
+        return lvalue;
+    Value rvalue = lvalue;
+    rvalue.type = RVALUE;
+    LLVMTypeRef ty = GetTypeRefRValue(&rvalue.kind);
+    rvalue.llvm = LLVMBuildLoad2(builder, ty, lvalue.llvm, "load");
+    return rvalue;
 }
 
-static LLVMValueRef CodegenExpressionRW(Expression *expr) {
+static Value CodegenExpression(Expression *);
+
+static Value CodegenExpressionLValue(Expression *expr) {
     const char *lex = GetLex(expr->lexid)->lex;
     int sym = SearchSymbol(expr->lexid);
     if (sym == -1) {
         ReportError(expr->loc, "undefined variable \"%s\"", lex);
-        return NULL;
+        return NullValue;
     }
     SymEnt *ent = &symtab.arr[sym];
     LLVMValueRef ptr;
     switch (expr->type) {
-    case EXPR_VAR: {
-        if (IsPointerKind(ent->cty.kind))
-            return ent->llvmval;
-        if (ent->cty.kind != TY_INT) {
-            ReportError(expr->loc, "expected variable \"%s\" to be integer", lex);
-            return NULL;
-        }
-        ptr = ent->llvmval;
-        break;
-    }
+    case EXPR_VAR: 
+        return ent->value;
     case EXPR_ARRAYCELL: {
-        if (!IsPointerKind(ent->cty.kind)) {
-            weprintf("@@@ %s: kind=%d, pointer=%d", lex, ent->cty.kind, TY_POINTER);
+        if (!IsPointerKind(&ent->value.kind)) {
             ReportError(expr->loc, "expected variable \"%s\" to be array or pointer", lex);
-            return NULL;
+            return NullValue;
         }
-        LLVMValueRef ind = CodegenExpression(expr->left);
-        if (ind == NULL) {
-            ReportError(expr->loc, "expected array index to be integer, got nothing");
-            return NULL;
+        Value ind = GetRValue(CodegenExpression(expr->left));
+        if (ind.kind.type != KIND_INT) {
+            ReportError(expr->loc, "expected array index to be int");
+            return NullValue;
         }
-        ptr = LLVMBuildGEP2(builder, intTy, ent->llvmval, &ind, 1, lex);
-        break;
-    }
-    case EXPR_VAR_ASSIGN: {
-        if (ent->cty.kind != TY_INT) {
-            ReportError(expr->loc, "expected variable \"%s\" to be integer", lex);
-            return NULL;
-        }
-        LLVMValueRef val = CodegenExpression(expr->right);
-        if (val == NULL) {
-            ReportError(expr->loc, "expected right hand side to be integer");
-            return NULL;
-        }
-        LLVMBuildStore(builder, val, ent->llvmval);
-        ptr = ent->llvmval;
-        break;
-    }
-    case EXPR_ARRAYCELL_ASSIGN: {
-        if (!IsPointerKind(ent->cty.kind)) {
-            ReportError(expr->loc, "expected variable \"%s\" to be array or pointer", lex);
-            return NULL;
-        }
-        LLVMValueRef ind = CodegenExpression(expr->left);
-        if (ind == NULL) {
-            ReportError(expr->loc, "expected array index to be integer, got nothing");
-            return NULL;
-        }
-        ptr = LLVMBuildGEP2(builder, intTy, ent->llvmval, &ind, 1, lex);
-        LLVMValueRef val = CodegenExpression(expr->right);
-        if (val == NULL) {
-            ReportError(expr->loc, "expected right hand side to be integer");
-            return NULL;
-        }
-        LLVMBuildStore(builder, val, ptr);
-        break;
+        Value ptr = {
+            .type = LVALUE,
+            .kind = KIND_INT,
+            .llvm = LLVMBuildGEP2(builder, intTy, ent->value.llvm, &ind.llvm, 1, lex)
+        };
+        return ptr;
     }
     default:
         eprintf("unexpected r/w expression type");
     }
-    return LLVMBuildLoad2(builder, intTy, ptr, lex);
+    return NullValue;
 }
 
-static LLVMValueRef CodegenExpressionBinaryOp(Expression *expr) {
-    LLVMValueRef left = CodegenExpression(expr->left);
-    LLVMValueRef right = CodegenExpression(expr->right);
-    if (left == NULL) {
-        ReportError(expr->loc, "expected left hand side of binary operator to be integer");
-        return NULL;
+static Value CodegenExpressionAssign(Expression *expr) {
+    Value left = CodegenExpression(expr->left);
+    Value right = GetRValue(CodegenExpression(expr->right));
+    if (left.type != LVALUE) {
+        ReportError(expr->loc, "unexpected assignment to rvalue");
+        return NullValue;
     }
-    if (right == NULL) {
-        ReportError(expr->loc, "expected right hand side of binary operator to be integer");
-        return NULL;
+    if (left.kind.type != right.kind.type) {
+        ReportError(expr->loc, "expected both sides of assignment to have equal types");
+        return NullValue;
     }
-    switch (expr->type) {
-    case EXPR_MUL:
-        return LLVMBuildMul(builder, left, right, "mul");
-    case EXPR_ADD:
-        return LLVMBuildAdd(builder, left, right, "add"); 
-    case EXPR_SUB:
-        return LLVMBuildSub(builder, left, right, "sub");
-    case EXPR_DIV:
-        return LLVMBuildSDiv(builder, left, right, "div");
-    case EXPR_REM:
-        return LLVMBuildSRem(builder, left, right, "rem");
-    case EXPR_BITAND:
-        return LLVMBuildAnd(builder, left, right, "and");
-    case EXPR_BITOR:
-        return LLVMBuildOr(builder, left, right, "or");
-    case EXPR_BITXOR:
-        return LLVMBuildXor(builder, left, right, "xor");
-    default:
-        eprintf("unexpected binary expression type");
+    if (left.kind.type != KIND_INT) {
+        ReportError(expr->loc, "expected assignment to int");
+        return NullValue;
     }
-    return NULL;
+    LLVMBuildStore(builder, right.llvm, left.llvm);
+    return left;
 }
 
-static LLVMValueRef CodegenExpressionCompareOp(Expression *expr) {
-    LLVMValueRef left = CodegenExpression(expr->left);
-    LLVMValueRef right = CodegenExpression(expr->right);
-    if (left == NULL) {
-        ReportError(expr->loc, "expected left hand side of compare operator to be integer");
-        return NULL;
+static LLVMValueRef (*binoptab[])(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, const char *) = {
+    [EXPR_MUL] = LLVMBuildMul,
+    [EXPR_ADD] = LLVMBuildAdd,
+    [EXPR_SUB] = LLVMBuildSub,
+    [EXPR_DIV] = LLVMBuildSDiv,
+    [EXPR_REM] = LLVMBuildSRem,
+    [EXPR_BITAND] = LLVMBuildAnd,
+    [EXPR_BITOR] = LLVMBuildOr,
+    [EXPR_BITXOR] = LLVMBuildXor,
+};
+
+static Value CodegenExpressionBinaryOp(Expression *expr) {
+    Value left = GetRValue(CodegenExpression(expr->left));
+    Value right = GetRValue(CodegenExpression(expr->right));
+    if (left.kind.type != KIND_INT) {
+        ReportError(expr->loc, "expected left hand side of binary operator to be int");
+        return NullValue;
     }
-    if (right == NULL) {
-        ReportError(expr->loc, "expected right hand side of compare operator to be integer");
-        return NULL;
+    if (right.kind.type != KIND_INT) {
+        ReportError(expr->loc, "expected right hand side of binary operator to be int");
+        return NullValue;
     }
-    LLVMIntPredicate pred;
-    switch (expr->type) {
-    case EXPR_EQUAL:
-        pred = LLVMIntEQ;
-        break;
-    case EXPR_LESS:
-        pred = LLVMIntSLT;
-        break;
-    case EXPR_GREATER:
-        pred = LLVMIntSGT;
-        break;
-    case EXPR_EQLT:
-        pred = LLVMIntSLE;
-        break;
-    case EXPR_EQGT:
-        pred = LLVMIntSGE;
-        break;
-    default:
-        eprintf("unexpected compare expression type");
-    }
-    LLVMValueRef cmp = LLVMBuildICmp(builder, pred, left, right, "cmp");
-    return LLVMBuildZExt(builder, cmp, intTy, "zext");
+    Value ret;
+    InitValue(&ret);
+    ret.type = RVALUE;
+    ret.kind.type = KIND_INT;
+    ret.llvm = binoptab[expr->type](builder, left.llvm, right.llvm, "op");
+    return ret;
 }
 
-static LLVMValueRef CodegenExpressionCall(Expression *expr) {
+static LLVMIntPredicate cmpoptab[] = {
+    [EXPR_EQUAL] = LLVMIntEQ,
+    [EXPR_LESS] = LLVMIntSLT,
+    [EXPR_GREATER] = LLVMIntSGT,
+    [EXPR_EQLT] = LLVMIntSLE,
+    [EXPR_EQGT] = LLVMIntSGE
+};
+
+static Value CodegenExpressionCompareOp(Expression *expr) {
+    Value left = GetRValue(CodegenExpression(expr->left));
+    Value right = GetRValue(CodegenExpression(expr->right));
+    if (left.kind.type != KIND_INT) {
+        ReportError(expr->loc, "expected left hand side of compare operator to be int");
+        return NullValue;
+    }
+    if (right.kind.type != KIND_INT) {
+        ReportError(expr->loc, "expected right hand side of compare operator to be int");
+        return NullValue;
+    }
+    Value ret;
+    InitValue(&ret);
+    ret.type = RVALUE;
+    ret.kind.type = KIND_INT;
+    LLVMIntPredicate pred = cmpoptab[expr->type];
+    LLVMValueRef cmp = LLVMBuildICmp(builder, pred, left.llvm, right.llvm, "cmp");
+    ret.llvm = LLVMBuildZExt(builder, cmp, intTy, "zext");
+    return ret;
+}
+
+static Value CodegenExpressionCall(Expression *expr) {
     const char *lex = GetLex(expr->lexid)->lex;
     int sym = SearchSymbol(expr->lexid);
     if (sym == -1) {
         ReportError(expr->loc, "undefined function \"%s\"", lex);
-        return NULL;
+        return NullValue;
     }
     SymEnt *ent = &symtab.arr[sym];
-    if (!IsFunctionKind(ent->cty.kind)) {
+    Value *fnval = &ent->value;
+    Kind *fnkind = &fnval->kind;
+    if (!IsFunctionKind(fnkind)) {
         ReportError(expr->loc, "expected variable \"%s\" to be function", lex);
-        return NULL;
+        return NullValue;
     }
-    if (ent->cty.args.len != expr->args.len) {
-        ReportError(expr->loc, "expected %d argument(s), passed %d", ent->cty.args.len, expr->args.len);
-        return NULL;
+    if (fnkind->args.len != expr->args.len) {
+        ReportError(expr->loc, "expected %d argument(s), passed %d", fnkind->args.len, expr->args.len);
+        return NullValue;
     }
-    int argc = ent->cty.args.len;
+    int argc = fnkind->args.len;
     Array(LLVMValueRef) args = {0};
     for (int i = 0; i < argc; i++) {
-        LLVMValueRef arg = CodegenExpression(&expr->args.arr[i]);
-        if (arg == NULL) {
-            ReportError(expr->loc, "expected argument %d of \"%s\" to be integer, array, or pointer", i + 1, lex);
-            return NULL;
+        Expression *argexpr = &expr->args.arr[i];
+        Value arg = CodegenExpression(argexpr);
+        Kind *paramkind = &fnkind->args.arr[i];
+        switch (arg.kind.type) {
+        case KIND_VOID:
+            ReportError(argexpr->loc, "unexpected argument %d of type void for \"%s\"", i + 1, lex);
+            break;
+        case KIND_INT:
+            if (paramkind->type != KIND_INT) {
+                ReportError(argexpr->loc, "unexpected passing int to argument %d for \"%s\"", i + 1, lex);
+            } else {
+                Append(&args, GetRValue(arg).llvm);
+            }
+            break;
+        case KIND_ARRAY:
+        case KIND_POINTER:
+            if (paramkind->type != KIND_POINTER) {
+                ReportError(argexpr->loc, "unexpected passing array or pointer to argument %d for \"%s\"", i + 1, lex);
+            } else {
+                Append(&args, arg.llvm);
+            }
+            break;
+        default:
+            ReportError(argexpr->loc, "unexpected type for argument %d for \"%s\"", i + 1, lex);
         }
-        Append(&args, arg);
     }
-    LLVMValueRef ret = LLVMBuildCall2(builder, ent->cty.typeref, ent->llvmval, args.arr, args.len, ent->cty.kind == TY_RETVOID ? "" : "call");
+    if (args.len != argc) {
+        ReportError(expr->loc, "invalid argument(s) for \"%s\"", lex);
+        ArrayRelease(&args);
+        return NullValue;
+    }
+    Value ret;
+    InitValue(&ret);
+    ret.type = RVALUE;
+    ret.kind.type = fnkind->type == KIND_RETVOID ? KIND_VOID : KIND_INT;
+    LLVMTypeRef fnTy = GetTypeRefRValue(fnkind);
+    ret.llvm = LLVMBuildCall2(builder, fnTy, fnval->llvm, args.arr, args.len, fnkind->type == KIND_RETVOID ? "" : "call");
     ArrayRelease(&args);
-    return ent->cty.kind == TY_RETVOID ? NULL : ret;
+    return ret;
 }
 
-static LLVMValueRef CodegenExpression(Expression *expr) {
+static Value GetConstantValue(int N) {
+    Value c;
+    InitValue(&c);
+    c.type = RVALUE;
+    c.kind.type = KIND_INT;
+    c.llvm = LLVMConstInt(intTy, N, 1);
+    return c;
+}
+
+static Value CodegenExpression(Expression *expr) {
     switch (expr->type) {
     case EXPR_VAR:
     case EXPR_ARRAYCELL:
-    case EXPR_VAR_ASSIGN:
-    case EXPR_ARRAYCELL_ASSIGN:
-        return CodegenExpressionRW(expr);
+        return CodegenExpressionLValue(expr);
+    case EXPR_ASSIGN:
+        return CodegenExpressionAssign(expr);
     case EXPR_MUL:
     case EXPR_ADD:
     case EXPR_SUB:
@@ -388,13 +426,13 @@ static LLVMValueRef CodegenExpression(Expression *expr) {
     case EXPR_CALL: 
         return CodegenExpressionCall(expr);
     case EXPR_CONST:
-        return LLVMConstInt(intTy, expr->value, 1);
+        return GetConstantValue(expr->value);
     case EXPR_ERROR:
-        return NULL;
+        return NullValue;
     default:
         eprintf("expr not implemented");
     }
-    return NULL;
+    return NullValue;
 }
 
 static void CodegenStatement(Statement *stmt);
@@ -414,17 +452,18 @@ static void CodegenCompund(Statement *comp) {
 
 static void CodegenConditional(Statement *cond) {
     SymEnt *fnent = &symtab.arr[GetFunction()];
+    LLVMValueRef fnvalref = fnent->value.llvm;
     LLVMBasicBlockRef bodyblock, elseblock, endblock;
-    bodyblock = LLVMAppendBasicBlockInContext(context, fnent->llvmval, "ifbody");
+    bodyblock = LLVMAppendBasicBlockInContext(context, fnvalref, "ifbody");
     if (cond->elsebody != NULL)
-        elseblock = LLVMAppendBasicBlockInContext(context, fnent->llvmval, "elsebody");
-    endblock = LLVMAppendBasicBlockInContext(context, fnent->llvmval, "endif");
-    LLVMValueRef condval = CodegenExpression(&cond->ifcond);
-    if (condval == NULL) {
-        ReportError(cond->loc, "expected condition of if-statement to be integer");
-        condval = LLVMConstInt(intTy, 0, 0);
+        elseblock = LLVMAppendBasicBlockInContext(context, fnvalref, "elsebody");
+    endblock = LLVMAppendBasicBlockInContext(context, fnvalref, "endif");
+    Value condval = GetRValue(CodegenExpression(&cond->ifcond));
+    if (condval.kind.type != KIND_INT) {
+        ReportError(cond->loc, "expected condition of if-statement to be int");
+        condval = GetConstantValue(0);
     }
-    LLVMValueRef predval = LLVMBuildICmp(builder, LLVMIntNE, condval, LLVMConstInt(intTy, 0, 0), "pred");
+    LLVMValueRef predval = LLVMBuildICmp(builder, LLVMIntNE, condval.llvm, LLVMConstInt(intTy, 0, 0), "pred");
     LLVMBuildCondBr(builder, predval, bodyblock, cond->elsebody == NULL ? endblock : elseblock);
     LLVMPositionBuilderAtEnd(builder, bodyblock);
     CodegenStatement(cond->ifbody);
@@ -446,22 +485,23 @@ Array(IterationBlocks) itertab;
 
 static void CodegenIteration(Statement *iter) {
     SymEnt *fnent = &symtab.arr[GetFunction()];
+    LLVMValueRef fnvalref = fnent->value.llvm;
     LLVMBasicBlockRef condblock, bodyblock, stepblock, endblock;
-    condblock = LLVMAppendBasicBlockInContext(context, fnent->llvmval, "itercond");
-    bodyblock = LLVMAppendBasicBlockInContext(context, fnent->llvmval, "iterbody");
-    stepblock = LLVMAppendBasicBlockInContext(context, fnent->llvmval, "iterstep");
-    endblock = LLVMAppendBasicBlockInContext(context, fnent->llvmval, "enditer");
+    condblock = LLVMAppendBasicBlockInContext(context, fnvalref, "itercond");
+    bodyblock = LLVMAppendBasicBlockInContext(context, fnvalref, "iterbody");
+    stepblock = LLVMAppendBasicBlockInContext(context, fnvalref, "iterstep");
+    endblock = LLVMAppendBasicBlockInContext(context, fnvalref, "enditer");
     /* entry block */
     CodegenExpression(&iter->iterinit);
     LLVMBuildBr(builder, condblock);
     /* condition block */
     LLVMPositionBuilderAtEnd(builder, condblock);
-    LLVMValueRef condval = CodegenExpression(&iter->itercond);
-    if (condval == NULL) {
+    Value condval = GetRValue(CodegenExpression(&iter->itercond));
+    if (condval.kind.type != KIND_INT) {
         ReportError(iter->loc, "expected condition of for-statement to be integer");
-        condval = LLVMConstInt(intTy, 0, 0);
+        condval = GetConstantValue(0);
     }
-    LLVMValueRef predval = LLVMBuildICmp(builder, LLVMIntNE, condval, LLVMConstInt(intTy, 0, 0), "pred");
+    LLVMValueRef predval = LLVMBuildICmp(builder, LLVMIntNE, condval.llvm, LLVMConstInt(intTy, 0, 0), "pred");
     LLVMBuildCondBr(builder, predval, bodyblock, endblock);
     /* body block */
     LLVMPositionBuilderAtEnd(builder, bodyblock);
@@ -507,7 +547,7 @@ static void CodegenStatement(Statement *stmt) {
     }
     case STMT_RETVOID: {
         SymEnt *ent = &symtab.arr[GetFunction()];
-        if (ent->cty.kind != TY_RETVOID) {
+        if (ent->value.kind.type != KIND_RETVOID) {
             ReportError(stmt->loc, "unexpected return void in integer function");
             return;
         }
@@ -516,16 +556,16 @@ static void CodegenStatement(Statement *stmt) {
     }
     case STMT_RETEXPR: {
         SymEnt *ent = &symtab.arr[GetFunction()];
-        if (ent->cty.kind != TY_RETINT) {
+        if (ent->value.kind.type != KIND_RETINT) {
             ReportError(stmt->loc, "unexpected return integer in void function");
             return;
         }
-        LLVMValueRef ret = CodegenExpression(&stmt->expr);
-        if (ret == NULL) {
-            ReportError(stmt->loc, "expected return value to be integer");
+        Value ret = GetRValue(CodegenExpression(&stmt->expr));
+        if (ret.kind.type != KIND_INT) {
+            ReportError(stmt->loc, "expected return value to be int");
             return;
         }
-        LLVMBuildRet(builder, ret);
+        LLVMBuildRet(builder, ret.llvm);
         break;
     }
     case STMT_COMPOUND:
@@ -542,23 +582,23 @@ static void CodegenStatement(Statement *stmt) {
 static void CodegenParameters(LLVMValueRef fn, DeclarationArray *params) {
     for (int i = 0; i < params->len; i++) {
         Declaration *param = &params->arr[i];
-        const char *lex =  GetLex(param->lexid)->lex;
+        const char *lex = GetLex(param->lexid)->lex;
         SymEnt ent = {
             .lexid = param->lexid,
             .scope = GetScope()
         };
-        InitCType(&ent.cty);
+        Value *value = &ent.value;
+        InitValue(value);
+        value->kind = param->kind;
+        value->type = value->kind.type == KIND_POINTER ? RVALUE : LVALUE;
         LLVMValueRef llvmparam = LLVMGetParam(fn, i);
         LLVMSetValueName2(llvmparam, lex, strlen(lex));
-        if (param->length < 0) {
-            ent.cty.kind = TY_POINTER;
-            ent.cty.typeref = ptrTy;
-            ent.llvmval = llvmparam;
+        if (value->type == RVALUE) {
+            value->llvm = llvmparam;
         } else {
-            ent.cty.kind = TY_INT;
-            ent.cty.typeref = intTy;
-            ent.llvmval = LLVMBuildAlloca(builder, intTy, lex);
-            LLVMBuildStore(builder, llvmparam, ent.llvmval);
+            LLVMTypeRef ty = GetTypeRefRValue(&value->kind);
+            value->llvm = LLVMBuildAlloca(builder, ty, lex);
+            LLVMBuildStore(builder, llvmparam, value->llvm);
         }
         Append(&symtab, ent);
     }
@@ -570,48 +610,34 @@ static void CodegenFunction(Declaration *decl) {
     SymEnt *ent = &symtab.arr[sym];
     ent->lexid = decl->lexid;
     ent->scope = 0;
-    InitCType(&ent->cty);
+    Value *fnval = &ent->value;
+    InitValue(fnval);
+    fnval->type = RVALUE;
+    fnval->kind = decl->kind;
     StartScope();
-    ent->cty.kind = decl->type == VOID ? TY_RETVOID : TY_RETINT;
     const char *lex = GetLex(decl->lexid)->lex;
-    Array(LLVMTypeRef) llvmargs = {0};
-    int parity = decl->parity;
-    ArrayPinchN(&llvmargs, parity);
-    ArrayPinchN(&ent->cty.args, parity);
-    llvmargs.len = parity;
-    ent->cty.args.len = parity;
-    for (int i = 0; i < decl->parity; i++) {
-        Declaration *argdecl = &decl->args.arr[i];
-        CType *cty = &ent->cty.args.arr[i];
-        InitCType(cty);
-        if (argdecl->length == 0) {
-            cty->typeref = intTy;
-            cty->kind = TY_INT;
-        } else {
-            cty->typeref = ptrTy;
-            cty->kind = TY_POINTER;
-        }
-        llvmargs.arr[i] = cty->typeref;
-    }
-    LLVMTypeRef retTy = decl->type == VOID ? voidTy : intTy;
-    ent->cty.typeref = LLVMFunctionType(retTy, llvmargs.arr, decl->parity, 0);
-    ArrayRelease(&llvmargs);
-    ent->llvmval = LLVMAddFunction(module, lex, ent->cty.typeref);
-    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(context, ent->llvmval, "entry");
+    int parity = decl->args.len;
+    LLVMTypeRef fnty = GetTypeRefRValue(&fnval->kind);
+    fnval->llvm = LLVMAddFunction(module, lex, fnty);
+    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(context, fnval->llvm, "entry");
     LLVMPositionBuilderAtEnd(builder, entry);
-    CodegenParameters(ent->llvmval, &decl->args);
+    CodegenParameters(fnval->llvm, &decl->args);
     CodegenCompund(decl->body);
     /* ent is now invalid, need to read it again */
     LLVMBasicBlockRef endblock = LLVMGetInsertBlock(builder);
     LLVMValueRef lastInst = LLVMGetLastInstruction(endblock);
     if (lastInst == NULL || !LLVMIsATerminatorInst(lastInst)) {
-        if (decl->type == INT)
+        if (decl->kind.type == KIND_RETINT)
             ReportError(decl->loc, "expected return statement at the end of integer function \"%s\"", lex);
         else
             LLVMBuildRetVoid(builder);
     }
     EndScope();
 }
+
+static const Kind IntKind = {
+    .type = KIND_INT,
+};
 
 static void CodegenPrint(void) {
     LLVMTypeRef printfTy = LLVMFunctionType(intTy, &ptrTy, 1, 1);
@@ -629,16 +655,14 @@ static void CodegenPrint(void) {
     SymEnt ent = {
         .lexid = lexid,
         .scope = 0,
-        .llvmval = myprint
     };
-    InitCType(&ent.cty);
-    ent.cty.kind = TY_RETVOID;
-    ent.cty.typeref = myprintTy;
-    CType arg;
-    InitCType(&arg);
-    arg.kind = TY_INT;
-    arg.typeref = intTy;
-    Append(&ent.cty.args, arg);
+    Value *value = &ent.value;
+    InitValue(value);
+    value->type = RVALUE;
+    value->kind.type = KIND_RETVOID;
+    value->kind.args.arr = (Kind *)&IntKind;
+    value->kind.args.len = 1;
+    value->llvm = myprint;
     Append(&symtab, ent);
 }
 
@@ -659,12 +683,13 @@ static void CodegenInput(void) {
     int lexid = CreateLex("input");
     SymEnt ent = {
         .lexid = lexid,
-        .scope = 0,
-        .llvmval = myinput
+        .scope = 0
     };
-    InitCType(&ent.cty);
-    ent.cty.kind = TY_RETINT;
-    ent.cty.typeref = myinputTy;
+    Value *value = &ent.value;
+    InitValue(value);
+    value->type = RVALUE;
+    value->kind.type = KIND_RETINT;
+    value->llvm = myinput;
     Append(&symtab, ent);
 }
 
@@ -674,10 +699,10 @@ void CodegenProgram(DeclarationArray *prog) {
     CodegenInput();
     for (int i = 0; i < prog->len; i++) {
         Declaration *decl = &prog->arr[i];
-        if (decl->parity == -1)
-            CodegenGlobalVariable(decl);
-        else
+        if (decl->kind.type == KIND_RETVOID || decl->kind.type == KIND_RETINT)
             CodegenFunction(decl);
+        else
+            CodegenGlobalVariable(decl);
     }
     EndScope();
 }

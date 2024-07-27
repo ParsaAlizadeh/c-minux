@@ -1,8 +1,10 @@
+#include "main.h"
 #include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "array.h"
 #include "c-minux.tab.h"
 #include "eprintf.h"
 
@@ -128,10 +130,19 @@ int yylex(void) {
     return c;
 }
 
+void InitKind(Kind *kind) {
+    kind->type = KIND_VOID;
+    kind->length = 0;
+    ArrayZero(&kind->args);
+}
+
+void DestructKind(Kind *kind) {
+    ArrayRelease(&kind->args);
+}
+
 void InitDeclaration(Declaration *decl) {
-    decl->type = -1;
-    decl->length = 0;
-    decl->parity = -1;
+    decl->lexid = -1;
+    InitKind(&decl->kind);
     ArrayZero(&decl->args);
     decl->body = NULL;
 }
@@ -145,6 +156,7 @@ void DestructDeclaration(Declaration *decl) {
     ArrayRelease(&decl->args);
     DestructStatement(decl->body);
     free(decl->body);
+    DestructKind(&decl->kind);
 }
 
 void DestructStatement(Statement *stmt) {
