@@ -82,7 +82,7 @@ enum ExprType {
 
 struct Expression {
     enum ExprType type;
-    int lexid, value;
+    int lexid, value, assign;
     Expression *left, *right;
     Location loc;
     ExpressionArray args;

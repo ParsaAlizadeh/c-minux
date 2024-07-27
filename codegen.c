@@ -283,7 +283,7 @@ static LLVMValueRef (*binoptab[])(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, co
 };
 
 static Value CodegenExpressionBinaryOp(Expression *expr) {
-    Value left = GetRValue(CodegenExpression(expr->left));
+    Value left = CodegenExpression(expr->left);
     Value right = GetRValue(CodegenExpression(expr->right));
     if (left.kind.type != KIND_INT) {
         ReportError(expr->loc, "expected left hand side of binary operator to be int");
@@ -293,11 +293,20 @@ static Value CodegenExpressionBinaryOp(Expression *expr) {
         ReportError(expr->loc, "expected right hand side of binary operator to be int");
         return NullValue;
     }
+    LLVMValueRef opres = binoptab[expr->type](builder, GetRValue(left).llvm, right.llvm, "op");
+    if (expr->assign) {
+        if (left.type != LVALUE) {
+            ReportError(expr->loc, "expected left hand side to be lvalue");
+            return NullValue;
+        }
+        LLVMBuildStore(builder, opres, left.llvm);
+        return left;
+    }
     Value ret;
     InitValue(&ret);
     ret.type = RVALUE;
     ret.kind.type = KIND_INT;
-    ret.llvm = binoptab[expr->type](builder, left.llvm, right.llvm, "op");
+    ret.llvm = opres;
     return ret;
 }
 

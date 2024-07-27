@@ -79,6 +79,14 @@ static int eqfollow[] = {
     ['<'] = EQLT,
     ['>'] = EQGT,
     ['!'] = NOTEQ,
+    ['|'] = OREQ,
+    ['^'] = XOREQ,
+    ['&'] = ANDEQ,
+    ['+'] = ADDEQ,
+    ['-'] = SUBEQ,
+    ['*'] = MULEQ,
+    ['/'] = DIVEQ,
+    ['%'] = REMEQ,
 };
 
 int yylex(void) {
@@ -119,7 +127,7 @@ int yylex(void) {
         return GetLex(yylval.lexid)->type;
     }
     /* operators which could follow by equal sign */
-    if (strchr("=<>!", c) != NULL) {
+    if (strchr("=<>!|^&+-*/%", c) != NULL) {
         int cnxt = Fgetc();
         if (cnxt == '=') {
             yylloc.last_column = column;
@@ -193,6 +201,8 @@ void DestructStatement(Statement *stmt) {
 }
 
 void InitExpression(Expression *expr) {
+    expr->type = -1;
+    expr->assign = 0;
     expr->left = expr->right = NULL;
     ArrayZero(&expr->args);
 }

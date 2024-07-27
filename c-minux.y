@@ -51,6 +51,8 @@
 %token <number> NUMBER 
 %token <lexid> ID
 %token EQUAL "==" EQLT "<=" EQGT ">=" NOTEQ "!="
+%token OREQ "|=" XOREQ "^=" ANDEQ "&=" ADDEQ "+=" SUBEQ "-="
+%token MULEQ "*=" DIVEQ "/=" REMEQ "%="
 %token <lexid> IF "if" ELSE "else" FOR "for" BREAK "break"
 %token <lexid> CONTINUE "continue" RETURN "return" INT "int" VOID "void"
 
@@ -59,12 +61,12 @@
 %nterm <lexid> type
 %nterm <stmtarr> statements
 %nterm <stmt> statement compound-stmt expr-stmt cond-stmt iter-stmt break-stmt continue-stmt ret-stmt
-%nterm <expr> expr iter-expr lvalue
+%nterm <expr> expr iter-expr
 %nterm <exprarr> arguments arg-list
 
 %precedence THEN
 %precedence "else"
-%right '='
+%right '=' "|=" "^=" "&=" "+=" "-=" "*=" "/=" "%="
 %left '|'
 %left '^'
 %left '&'
@@ -213,7 +215,7 @@ expr-stmt: expr ';' {
 };
 
 /* read expressions */
-lvalue: ID {
+expr: ID {
     InitExpression(&$$);
     $$.type = EXPR_VAR;
     $$.lexid = $1;
@@ -227,7 +229,6 @@ lvalue: ID {
     *$$.left = $3;
     $$.loc = @$;
 };
-expr: lvalue;
 
 /* binary expression */
 %code {
@@ -241,10 +242,7 @@ expr: lvalue;
         Dst.loc = Loc; \
     } while (0)
 };
-expr: lvalue '=' expr {
-    INIT_BINARY_EXPR(EXPR_ASSIGN, $$, $1, $3, @$);
-}
-| expr '*' expr {
+expr: expr '*' expr {
     INIT_BINARY_EXPR(EXPR_MUL, $$, $1, $3, @$);
 }
 | expr '+' expr {
@@ -285,6 +283,41 @@ expr: lvalue '=' expr {
 }
 | expr "!=" expr {
     INIT_BINARY_EXPR(EXPR_NOTEQ, $$, $1, $3, @$);
+};
+
+/* binary assignment expressions */
+%code {
+    #define INIT_BINASSIGN_EXPR(Type, Dst, Left, Right, Loc) do { \
+        INIT_BINARY_EXPR(Type, Dst, Left, Right, Loc); \
+        Dst.assign = 1; \
+    } while (0);
+};
+expr: expr '=' expr {
+    INIT_BINASSIGN_EXPR(EXPR_ASSIGN, $$, $1, $3, @$);
+}
+| expr "|=" expr {
+    INIT_BINASSIGN_EXPR(EXPR_BITOR, $$, $1, $3, @$);
+}
+| expr "^=" expr {
+    INIT_BINASSIGN_EXPR(EXPR_BITXOR, $$, $1, $3, @$);
+}
+| expr "&=" expr {
+    INIT_BINASSIGN_EXPR(EXPR_BITAND, $$, $1, $3, @$);
+}
+| expr "+=" expr {
+    INIT_BINASSIGN_EXPR(EXPR_ADD, $$, $1, $3, @$);
+}
+| expr "-=" expr {
+    INIT_BINASSIGN_EXPR(EXPR_SUB, $$, $1, $3, @$);
+}
+| expr "*=" expr {
+    INIT_BINASSIGN_EXPR(EXPR_MUL, $$, $1, $3, @$);
+}
+| expr "/=" expr {
+    INIT_BINASSIGN_EXPR(EXPR_DIV, $$, $1, $3, @$);
+}
+| expr "%=" expr {
+    INIT_BINASSIGN_EXPR(EXPR_REM, $$, $1, $3, @$);
 };
 
 /* unary expressions */
