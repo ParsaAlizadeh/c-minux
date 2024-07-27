@@ -50,7 +50,7 @@
 
 %token <number> NUMBER 
 %token <lexid> ID
-%token EQUAL "==" EQLT "<=" EQGT ">="
+%token EQUAL "==" EQLT "<=" EQGT ">=" NOTEQ "!="
 %token <lexid> IF "if" ELSE "else" FOR "for" BREAK "break"
 %token <lexid> CONTINUE "continue" RETURN "return" INT "int" VOID "void"
 
@@ -68,7 +68,7 @@
 %left '|'
 %left '^'
 %left '&'
-%nonassoc '<' '>' "==" "<=" ">="
+%nonassoc '<' '>' "==" "<=" ">=" "!="
 %left '+' '-'
 %left '*' '/' '%'
 
@@ -212,7 +212,7 @@ expr-stmt: expr ';' {
     $$.expr = $1;
 };
 
-/* read/write expressions */
+/* read expressions */
 lvalue: ID {
     InitExpression(&$$);
     $$.type = EXPR_VAR;
@@ -227,16 +227,7 @@ lvalue: ID {
     *$$.left = $3;
     $$.loc = @$;
 };
-expr: lvalue 
-| lvalue '=' expr {
-    InitExpression(&$$);
-    $$.type = EXPR_ASSIGN;
-    $$.left = malloc(sizeof(Expression));
-    *$$.left = $1;
-    $$.right = malloc(sizeof(Expression));
-    *$$.right = $3;
-    $$.loc = @$;
-};
+expr: lvalue;
 
 /* binary expression */
 %code {
@@ -250,7 +241,10 @@ expr: lvalue
         Dst.loc = Loc; \
     } while (0)
 };
-expr: expr '*' expr {
+expr: lvalue '=' expr {
+    INIT_BINARY_EXPR(EXPR_ASSIGN, $$, $1, $3, @$);
+}
+| expr '*' expr {
     INIT_BINARY_EXPR(EXPR_MUL, $$, $1, $3, @$);
 }
 | expr '+' expr {
@@ -289,6 +283,9 @@ expr: expr '*' expr {
 | expr ">=" expr {
     INIT_BINARY_EXPR(EXPR_EQGT, $$, $1, $3, @$);
 }
+| expr "!=" expr {
+    INIT_BINARY_EXPR(EXPR_NOTEQ, $$, $1, $3, @$);
+};
 
 /* unary expressions */
 expr: '(' expr ')' {

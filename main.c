@@ -74,6 +74,13 @@ static void Fungetc(int c) {
     column--;
 }
 
+static int eqfollow[] = {
+    ['='] = EQUAL,
+    ['<'] = EQLT,
+    ['>'] = EQGT,
+    ['!'] = NOTEQ,
+};
+
 int yylex(void) {
     int c;
     do {
@@ -102,7 +109,7 @@ int yylex(void) {
         do {
             Append(&lex, c);
             c = Fgetc();
-        } while (c != EOF && isalnum(c));
+        } while (c != EOF && (isalnum(c) || c == '_'));
         Append(&lex, '\0');
         if (c != EOF)
             Fungetc(c);
@@ -111,17 +118,12 @@ int yylex(void) {
         ArrayRelease(&lex);
         return GetLex(yylval.lexid)->type;
     }
-    if (c == '=' || c == '<' || c == '>') {
+    /* operators which could follow by equal sign */
+    if (strchr("=<>!", c) != NULL) {
         int cnxt = Fgetc();
         if (cnxt == '=') {
             yylloc.last_column = column;
-            if (c == '=')
-                return EQUAL;
-            if (c == '<')
-                return EQLT;
-            if (c == '>')
-                return EQGT;
-            eprintf("unreachable");
+            return eqfollow[c];
         }
         if (cnxt != EOF)
             Fungetc(cnxt);

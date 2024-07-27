@@ -306,7 +306,8 @@ static LLVMIntPredicate cmpoptab[] = {
     [EXPR_LESS] = LLVMIntSLT,
     [EXPR_GREATER] = LLVMIntSGT,
     [EXPR_EQLT] = LLVMIntSLE,
-    [EXPR_EQGT] = LLVMIntSGE
+    [EXPR_EQGT] = LLVMIntSGE,
+    [EXPR_NOTEQ] = LLVMIntNE,
 };
 
 static Value CodegenExpressionCompareOp(Expression *expr) {
@@ -360,7 +361,7 @@ static Value CodegenExpressionCall(Expression *expr) {
             break;
         case KIND_INT:
             if (paramkind->type != KIND_INT) {
-                ReportError(argexpr->loc, "unexpected passing int to argument %d for \"%s\"", i + 1, lex);
+                ReportError(argexpr->loc, "unexpected argument %d of type int for \"%s\"", i + 1, lex);
             } else {
                 Append(&args, GetRValue(arg).llvm);
             }
@@ -368,7 +369,7 @@ static Value CodegenExpressionCall(Expression *expr) {
         case KIND_ARRAY:
         case KIND_POINTER:
             if (paramkind->type != KIND_POINTER) {
-                ReportError(argexpr->loc, "unexpected passing array or pointer to argument %d for \"%s\"", i + 1, lex);
+                ReportError(argexpr->loc, "unexpected argument %d of type array or pointer for \"%s\"", i + 1, lex);
             } else {
                 Append(&args, arg.llvm);
             }
@@ -422,6 +423,7 @@ static Value CodegenExpression(Expression *expr) {
     case EXPR_GREATER:
     case EXPR_EQLT:
     case EXPR_EQGT:
+    case EXPR_NOTEQ:
         return CodegenExpressionCompareOp(expr);
     case EXPR_CALL: 
         return CodegenExpressionCall(expr);
