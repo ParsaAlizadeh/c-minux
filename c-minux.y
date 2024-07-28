@@ -286,10 +286,10 @@ expr: expr '*' expr {
 }
 | expr "!=" expr {
     INIT_BINARY_EXPR(EXPR_NOTEQ, $$, $1, $3, @$);
-};
+}
 | expr "&&" expr {
     INIT_BINARY_EXPR(EXPR_ANDTHEN, $$, $1, $3, @$);
-};
+}
 | expr "||" expr {
     INIT_BINARY_EXPR(EXPR_ORELSE, $$, $1, $3, @$);
 };
