@@ -144,6 +144,7 @@ static LLVMTypeRef GetTypeRefRValue(Kind *kind) {
     default:
         eprintf("unknown kind type");
     }
+    return voidTy;
 }
 
 static void CodegenGlobalVariable(Declaration *decl) {
@@ -225,7 +226,6 @@ static Value CodegenExpressionLValue(Expression *expr) {
         return NullValue;
     }
     SymEnt *ent = &symtab.arr[sym];
-    LLVMValueRef ptr;
     switch (expr->type) {
     case EXPR_VAR: 
         return ent->value;
@@ -241,7 +241,7 @@ static Value CodegenExpressionLValue(Expression *expr) {
         }
         Value ptr = {
             .type = LVALUE,
-            .kind = KIND_INT,
+            .kind.type = KIND_INT,
             .llvm = LLVMBuildGEP2(builder, intTy, ent->value.llvm, &ind.llvm, 1, lex)
         };
         return ptr;
@@ -666,7 +666,6 @@ static void CodegenFunction(Declaration *decl) {
     fnval->kind = decl->kind;
     StartScope();
     const char *lex = GetLex(decl->lexid)->lex;
-    int parity = decl->args.len;
     LLVMTypeRef fnty = GetTypeRefRValue(&fnval->kind);
     fnval->llvm = LLVMAddFunction(module, lex, fnty);
     LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(context, fnval->llvm, "entry");

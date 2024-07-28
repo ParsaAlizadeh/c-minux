@@ -20,7 +20,7 @@ extern void vweprintf(const char *fmt, va_list);
 extern void weprintf(const char *fmt, ...);
 extern void _eprintf(const char *fmt, ...);
 
-#define eprintf(fmt, ...) _eprintf(__FILE__ ":%d: fatal error: " fmt, __LINE__ __VA_OPT__(,) __VA_ARGS__)
+#define eprintf(fmt, ...) _eprintf(__FILE__ ":%d: " fmt, __LINE__ __VA_OPT__(,) __VA_ARGS__)
 
 /*
  * On error, these functions run eprintf to stop the program.
