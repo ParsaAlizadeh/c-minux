@@ -1,5 +1,5 @@
-a.out: Makefile c-minux.tab.c c-minux.tab.h main.c codegen.c printer.c
-	cc -DYYDEBUG=1 -fsanitize=address -g3 `llvm-config --cflags --ldflags --libs core support` array.c eprintf.c c-minux.tab.c codegen.c main.c -o ./a.out
+cmx: Makefile c-minux.tab.c c-minux.tab.h main.c codegen.c
+	cc -DYYDEBUG=1 -fsanitize=address -g3 `llvm-config --cflags --ldflags --libs core support` array.c eprintf.c c-minux.tab.c codegen.c main.c -o cmx
 
 c-minux.tab.c c-minux.tab.h: Makefile c-minux.y main.h
 	bison -d c-minux.y
@@ -16,8 +16,8 @@ c-minux.tab.c c-minux.tab.h: Makefile c-minux.y main.h
 %.bc: %.ll
 	llvm-as $< -o $@
 
-output.ll: a.out input.txt
-	./a.out
+output.ll: input.cmx cmx
+	./cmx input.cmx
 
 clear:
-	rm -f *.exe *.s *.optbc *.bc *.ll a.out
+	rm -f *.s *.optbc *.bc *.ll *.out *.cmx cmx

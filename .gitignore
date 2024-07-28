@@ -1,5 +1,3 @@
-a.out
-input.txt
 c-minux.tab.c
 c-minux.tab.h
 *.bc
@@ -7,3 +5,6 @@ c-minux.tab.h
 *.exe
 *.optbc
 *.s
+cmx
+*.cmx
+*.out

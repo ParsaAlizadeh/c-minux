@@ -12,9 +12,10 @@ void yyerror(const char *msg) {
     weprintf("%s", msg);
 }
 
-FILE *finp;
+static const char *inputpath;
+static FILE *finp;
 
-struct {
+static struct {
     int type;
     const char *lex;
 } keywords[] = {
@@ -29,7 +30,7 @@ struct {
     {0}
 };
 
-Array(LexEnt) lextab;
+static Array(LexEnt) lextab;
 
 int CreateLex(const char *lex) {
     for (int i = 0; i < lextab.len; i++) {
@@ -45,7 +46,7 @@ LexEnt *GetLex(int id) {
     return &lextab.arr[id];
 }
 
-void InitLexTab(void) {
+static void InitLexTab(void) {
     for (int i = 0; keywords[i].lex != NULL; i++) {
         int id = CreateLex(keywords[i].lex);
         GetLex(id)->type = keywords[i].type;
@@ -229,7 +230,7 @@ void DestructExpression(Expression *expr) {
     ArrayRelease(&expr->args);
 }
 
-DeclarationArray program;
+static DeclarationArray program;
 
 void SetProgram(DeclarationArray *p) {
     program = *p;
@@ -237,8 +238,8 @@ void SetProgram(DeclarationArray *p) {
 
 void PrintFileAtLoc(Location loc) {
     FILE *finp;
-    if ((finp = fopen("input.txt", "r")) == NULL)
-        eprintf("fopen(input.txt):");
+    if ((finp = fopen(inputpath, "r")) == NULL)
+        eprintf("fopen(%s):", inputpath);
     int line = 1, column = 1;
     int c;
     while (line < loc.first_line) {
@@ -288,7 +289,7 @@ static void PrintLocation(Location loc) {
     }
 }
 
-int errorhappend;
+static int errorhappend;
 
 void ReportError(Location loc, const char *fmt, ...) {
     va_list args;
@@ -302,13 +303,17 @@ void ReportError(Location loc, const char *fmt, ...) {
     errorhappend++;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+    setprogname(argv[0]);
+    if (argc != 2)
+        eprintf("usage: %s <input.cmx>", getprogname());
+    inputpath = argv[1];
     // yydebug = 1;
     InitLexTab();
-    if ((finp = fopen("input.txt", "r")) == NULL)
-        eprintf("fopen(input.txt):");
+    if ((finp = fopen(inputpath, "r")) == NULL)
+        eprintf("fopen(%s):", inputpath);
     if (yyparse() != 0)
-        eprintf("yyparse() failed");
+        eprintf("parse error reported, not checking semantics");
     // PrintDeclarationArray(&program);
     CreateCodegen();
     CodegenProgram(&program);
